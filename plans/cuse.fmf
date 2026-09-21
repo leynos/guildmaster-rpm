@@ -1,0 +1,25 @@
+summary: CUSE acceptance in a fresh KVM guest
+description: |
+    Run by scripts/cuse-guest.sh, which verifies the pinned cloud image,
+    provisions a fresh guest on a throw-away overlay through the user's
+    libvirt session, places the selected packages in the plan's data
+    directory and destroys the guest afterwards. The guest supplies its own
+    kernel, CUSE, udev, systemd and enforcing SELinux policy.
+
+    The image, memory and processors are chosen by the script from the
+    target, so that the image, this plan's distro context and the packages
+    always agree. Memory and processors come from tmt context; to run the
+    plan by hand during development, pass for example
+    `-c distro=fedora-43 -c guest_memory_mib=2048 -c guest_cpus=2`.
+discover:
+    how: fmf
+    filter: 'tag:cuse'
+provision:
+    how: virtual
+    connection: session
+    hardware:
+        memory: $@{guest_memory_mib} MB
+        cpu:
+            processors: $@{guest_cpus}
+execute:
+    how: tmt

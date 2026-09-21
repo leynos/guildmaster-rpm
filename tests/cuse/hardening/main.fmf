@@ -1,0 +1,3 @@
+summary: Hardening that the kernel reports for the running daemon
+test: ./test.sh
+order: 140

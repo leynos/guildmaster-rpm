@@ -1,0 +1,4 @@
+summary: After a reboot the enabled service is up without any help
+test: ./test.sh
+order: 170
+duration: 20m

@@ -1,0 +1,3 @@
+summary: Upgrading under a running daemon leaves it and its clients alone
+test: ./test.sh
+order: 160

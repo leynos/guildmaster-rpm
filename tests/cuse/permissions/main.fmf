@@ -1,0 +1,3 @@
+summary: Daemon and client permissions are separate
+test: ./test.sh
+order: 110

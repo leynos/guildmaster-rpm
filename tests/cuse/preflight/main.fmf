@@ -1,0 +1,8 @@
+summary: Guest environment preflight for CUSE
+description: |
+    Establishes that the guest can provide CUSE at all, before anything from
+    the package is installed. A failure here is an environment failure, not
+    a package result.
+test: ./test.sh
+order: 5
+duration: 30m

@@ -1,3 +1,4 @@
 summary: The installed production unit verifies and says what is documented
 test: ./test.sh
 order: 20
+tag+: [cuse]
