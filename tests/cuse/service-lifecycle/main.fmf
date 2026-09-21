@@ -1,4 +1,4 @@
-summary: Stop, start, drain and restart, crash recovery and bad configuration
+summary: Stop, start, drain, restart, crash, bad config
 test: ./test.sh
 order: 150
 require:

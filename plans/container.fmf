@@ -1,4 +1,4 @@
-summary: Package and service-management checks under real systemd in a container
+summary: Package checks under real systemd in a container
 description: |
     Run by scripts/systemd-fixture.sh, which starts a rootless Podman
     container with the distribution's systemd as PID 1 and hands it to tmt

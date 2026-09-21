@@ -1,0 +1,67 @@
+name: Acceptance
+
+# Fresh-guest CUSE acceptance on a KVM-capable runner. Trusted code only:
+# pushes to main and manual runs by people with write access. It is never
+# triggered by pull_request, so code from a fork cannot reach a
+# virtualization-capable runner. Releases run the same tier from release.yml.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cuse:
+    name: CUSE acceptance (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [rocky-10, fedora-43]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-cuse-tier
+
+      # Verified base images only. cuse-image.sh checks the bytes on every
+      # use, so a poisoned or truncated cache entry is replaced, not booted.
+      # Writable overlays are per run and are never cached.
+      - name: Cache verified guest images
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/guildmaster-rpm/images
+          key: guest-image-${{ matrix.target }}-${{ hashFiles('fixtures/cuse/images.tsv') }}
+
+      - name: Build and run the guest plan
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -o pipefail
+          make "test-cuse-${TARGET}" 2>&1 | tee "test-cuse-${TARGET}.log"
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evidence-cuse-${{ matrix.target }}
+          path: .build/evidence/
+          if-no-files-found: error
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-cuse-${{ matrix.target }}
+          path: |
+            /var/tmp/tmt/gm-cuse-*
+            !/var/tmp/tmt/gm-cuse-*/**/id_ecdsa*
+            test-cuse-${{ matrix.target }}.log
+          if-no-files-found: ignore

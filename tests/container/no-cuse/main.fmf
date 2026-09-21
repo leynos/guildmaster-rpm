@@ -1,4 +1,4 @@
-summary: Starting the production unit without CUSE fails as documented
+summary: Documented start failure without CUSE
 test: ./test.sh
 order: 40
 duration: 10m

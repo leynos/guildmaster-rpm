@@ -1,4 +1,4 @@
-summary: Clean pre-state, installation, identity, manifest, accounts and preset
+summary: Clean pre-state, install, manifest and accounts
 test: ./test.sh
 order: 10
 tag+: [cuse]

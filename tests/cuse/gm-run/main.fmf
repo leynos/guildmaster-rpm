@@ -1,4 +1,4 @@
-summary: gm-run runs commands under the jobserver and keeps its exit contract
+summary: gm-run under the jobserver; exit contract
 test: ./test.sh
 order: 130
 require:

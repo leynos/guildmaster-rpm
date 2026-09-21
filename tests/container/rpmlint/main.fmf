@@ -1,4 +1,4 @@
-summary: rpmlint the installed package and the built packages
+summary: rpmlint the built packages
 test: ./test.sh
 order: 50
 require:

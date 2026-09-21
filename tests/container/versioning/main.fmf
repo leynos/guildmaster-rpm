@@ -1,4 +1,4 @@
-summary: The snapshot version orders correctly under RPM's own comparison
+summary: Snapshot version ordering under RPM
 test: ./test.sh
 order: 60
 tag+: [cuse]
