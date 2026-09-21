@@ -10,7 +10,7 @@
 # download is never published, that the three container phases are invoked
 # with the right isolation, that anything other than the exact expected
 # package set is refused, that publication is all-or-nothing, that clean waits
-# for in-flight builds and keeps the locks and the guest images, and that
+# for in-flight builds and keeps the lock directory, and that
 # failed or cancelled work leaves no staging directories, temporary files,
 # containers, images or held locks behind.
 #
@@ -1300,29 +1300,26 @@ assert_no_file "$(cached_tarball "${c}")" 'cached tarball after clean'
 [[ -d "${c}/cache/locks" ]] || fail 'clean removed the lock directory'
 assert_locks_free "${c}" 'after clean'
 
-start 'clean keeps the verified guest images unless asked for them'
-c="${workdir}/clean-images"
+start 'clean empties the cache but keeps the lock directory'
+c="${workdir}/clean-cache"
 prepare_case "${c}"
-mkdir -p "${c}/cache/images"
-printf 'a gigabyte, pretend\n' >"${c}/cache/images/Rocky-10-GenericCloud.qcow2"
 rc=$(run_build "${c}" PODMAN_STUB_TAG=published)
 assert_eq 0 "${rc}" 'exit status priming the published set'
+# Scratch a build left in the cache, nested so that the removal has to
+# recurse rather than unlink a single file.
+mkdir -p "${c}/cache/scratch/deeper"
+printf 'left over\n' >"${c}/cache/scratch/deeper/leftover"
 
 env CACHE_DIR="${c}/cache" LOCK_DIR="${c}/cache/locks" \
     DIST_DIR="$(out_dir "${c}")" \
     "${clean_under_test}" >"${c}/clean.out" 2>&1 ||
     fail "clean failed: $(cat "${c}/clean.out")"
+assert_no_file "$(out_dir "${c}")" 'output directory after clean'
 assert_no_file "$(cached_tarball "${c}")" 'cached tarball after clean'
-assert_file "${c}/cache/images/Rocky-10-GenericCloud.qcow2" 'guest image after clean'
+assert_no_file "${c}/cache/scratch" 'cache scratch after clean'
 [[ -d "${c}/cache/locks" ]] || fail 'clean removed the lock directory'
 assert_contains "${c}/clean.out" 'kept' 'clean reports what it kept'
-
-env CACHE_DIR="${c}/cache" LOCK_DIR="${c}/cache/locks" \
-    DIST_DIR="$(out_dir "${c}")" CLEAN_IMAGES=1 \
-    "${clean_under_test}" >"${c}/clean-images.out" 2>&1 ||
-    fail "clean failed: $(cat "${c}/clean-images.out")"
-assert_no_file "${c}/cache/images" 'guest images after CLEAN_IMAGES=1'
-[[ -d "${c}/cache/locks" ]] || fail 'CLEAN_IMAGES=1 removed the lock directory'
+assert_locks_free "${c}" 'after clean'
 
 # --- cases: failure and cancellation ----------------------------------------
 

@@ -8,9 +8,8 @@
 #
 # Ownership model
 #   .build/            the checksum-verified upstream tarball cache, plus
-#                      .build/locks/ and .build/images/. Shared by every
-#                      target and every concurrent invocation; owned by no
-#                      single build.
+#                      .build/locks/. Shared by every target and every
+#                      concurrent invocation; owned by no single build.
 #   <outdir>/          published output. Only ever replaced whole, by the
 #                      publish step below. Never mounted into a container.
 #   <outdir>/../.staging/
@@ -19,7 +18,7 @@
 #                      A <staging>.previous directory is recovery data and is
 #                      deliberately never removed by cleanup.
 #   make clean         removes dist/ and the cached tarball, keeping
-#                      .build/locks/ and .build/images/; see scripts/clean.sh.
+#                      .build/locks/; see scripts/clean.sh.
 #
 # Locking
 #   .build/locks/activity.lock       held SHARED for the whole of this script.
@@ -359,7 +358,9 @@ build_phase_rpms() {
             set -euo pipefail
             topdir=/work/rpmbuild
             mkdir -p "${topdir}/SOURCES"
-            cp /work/'"${tarball}"' "${topdir}/SOURCES/"
+            # mktemp leaves the cached tarball 0600; give the copy that goes
+            # into the source RPM the conventional mode.
+            install -m 0644 /work/'"${tarball}"' "${topdir}/SOURCES/"
             cp /work/packaging/* "${topdir}/SOURCES/"
             cp /work/patches/* "${topdir}/SOURCES/"
 
