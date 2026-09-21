@@ -11,6 +11,7 @@ ROCKY_IMAGE  := quay.io/rockylinux/rockylinux@sha256:827d37bc128288ccf160ee318bb
 	test-cuse test-cuse-fedora-43 test-cuse-rocky-10 test-device \
 	accept-cuse-fedora-43 accept-cuse-rocky-10 \
 	lint lint-shell lint-python lint-fmf lint-workflows lint-docs lint-spec \
+	check-fmt typecheck markdownlint \
 	release-check
 
 # Guest resources for the CUSE tier: starting allocations, not measured
@@ -46,6 +47,7 @@ unit:
 	scripts/tests/test-build-rpm.sh
 	scripts/tests/test-systemd-fixture.sh
 	scripts/tests/test-cuse-scripts.sh
+	scripts/tests/test-release-scripts.sh
 	scripts/tests/model_check.py
 
 # The higher-release rebuild that the upgrade tests install over the package
@@ -105,7 +107,17 @@ SHELL_SOURCES := $(wildcard scripts/*.sh scripts/tests/*.sh packaging/*.sh \
 	tests/lib/*.sh tests/*/*/test.sh)
 PYTHON_SOURCES := scripts/tests tests/cuse/accounting
 
-lint: lint-shell lint-python lint-fmf lint-workflows lint-docs lint-spec
+lint: lint-shell lint-python typecheck lint-fmf lint-workflows lint-docs lint-spec
+
+# Estate-standard gate names.
+check-fmt:
+	shfmt -d -i 4 $(SHELL_SOURCES)
+	uvx ruff format --check $(PYTHON_SOURCES)
+
+typecheck:
+	uvx ty check $(PYTHON_SOURCES)
+
+markdownlint: lint-docs
 
 lint-shell:
 	shellcheck -x -P SCRIPTDIR $(SHELL_SOURCES)
@@ -125,7 +137,11 @@ lint-workflows:
 
 lint-docs:
 	markdownlint-cli2 '**/*.md' '#.build' '#dist'
-	@if grep -rqs --include="*.md" "^```mermaid" . ; then nixie --no-sandbox $$(git ls-files "*.md"); else echo "no Mermaid diagrams to validate"; fi
+	@if grep -rqs --include='*.md' --exclude-dir=.build --exclude-dir=dist '^[`]\{3\}mermaid' . ; then \
+		nixie --no-sandbox $$(git ls-files '*.md'); \
+	else \
+		echo 'no Mermaid diagrams to validate'; \
+	fi
 
 # rpmlint of the built packages runs inside the container tier, against the
 # distributions' own rpmlint configuration; this checks the spec on the host

@@ -45,7 +45,7 @@ sha256sum --check SHA256SUMS
 
 # guildmaster needs the cuse module for the running kernel
 sudo dnf install "kernel-modules-extra-$(uname -r)"
-sudo dnf install ./guildmaster-0.1^*.el10.x86_64.rpm    # or .fc43 on Fedora
+sudo dnf install ./guildmaster-0.1.*.el10.x86_64.rpm    # or .fc43 on Fedora
 ```
 
 ### Basic usage

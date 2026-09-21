@@ -122,9 +122,13 @@ fresh-guest CUSE acceptance plan.
   test, spec, unit, sysusers, udev rules, man pages, trial builds on both
   targets; remaining: SRPM rebuild and versioning tests, which land with the
   build script and container tier).
-- [ ] EP-M3 build scripts, unit suite and model checks (delegated to a
-  journeyman; build, clean, unit suite, model check and Makefile committed;
-  awaiting its report and a real container build by the lead).
+- [x] (2026-09-21 20:00Z) EP-M3 build scripts, unit suite and model checks.
+  Delegated to a journeyman. The real three-phase builds pass on both
+  targets: dependencies with network, then `rpmbuild -ba` and a clean SRPM
+  rebuild with `--network=none`, four packages each, temporary container
+  and image removed. `make unit`: 52 build-script cases, 84 fixture checks,
+  68 CUSE-script checks, 22 executed scenarios and 10408 abstract schedules
+  in the bounded model, four seeded model faults rejected.
 - [ ] EP-M4 rootless systemd container tier (completed 2026-09-21: fixture,
   preflight, adapter with 84 offline checks and three killed mutants, eight
   container tests passing on Fedora 43 against a provisional build;
@@ -133,8 +137,12 @@ fresh-guest CUSE acceptance plan.
   preflight, guest wrapper, thirteen guest tests passing in a fresh
   Fedora 43 guest against a provisional build; remaining: Rocky run,
   offline tests for the image cache and wrapper, runs against real builds).
-- [ ] EP-M6 documentation and lint gates.
-- [ ] EP-M7 CI, draft PR and review.
+- [ ] EP-M6 documentation and lint gates (completed: README, users' guide,
+  ADR, changelog, licence, AGENTS.md, `make lint`; remaining: developers'
+  guide, delegated to a scribe).
+- [ ] EP-M7 CI, draft PR and review (completed: CI, acceptance and release
+  workflows, assembly and evidence scripts; remaining: offline tests for
+  those scripts (delegated), CodeRabbit review, draft PR, hosted runs).
 - [ ] EP-M8 release and post-publication verification.
 
 ## Surprises & discoveries
@@ -217,8 +225,30 @@ fresh-guest CUSE acceptance plan.
 - Observation: container base images set `tsflags=nodocs`; the install test
   overrides it so that manual pages and the licence are checked.
 
+- Observation: GitHub rewrites `^` in a release asset name to `.`
+  (verified with a draft release that was deleted afterwards). Impact:
+  `scripts/assemble-release.sh` applies the same rename itself so that
+  `SHA256SUMS` lists the names users download; tags use a hyphen for the
+  caret, for example `v0.1-20251202git463382b-1`.
+- Observation: under heavy I/O from other sessions on the shared host, a
+  `dnf` transaction inside the build container spent about fifteen minutes
+  in `wb_wait_for_completion`. It was slow, not hung; the same phase took
+  65 seconds for the next target.
+- Observation: a stale zero-byte `.git/index.lock` appeared during that
+  stall with no git process alive; it was removed after checking.
+
 ## Decision log
 
+- Decision: the repository's packaging is placed under the ISC licence, the
+  same as upstream, with the owner as copyright holder. The baseline
+  repository carries no licence file. This is the agent's choice on the
+  owner's behalf and is flagged for confirmation in the pull request.
+  Date/Author: 2026-09-21, Claude.
+- Decision: no prepared guest base image is cached. Preparation (the
+  matching `kernel-modules-extra`, with a kernel update and reboot if
+  needed) happens inside each fresh guest, which keeps the prohibited
+  pre-installed state trivially absent at the cost of a few minutes a run.
+  Date/Author: 2026-09-21, Claude.
 - Decision (supersedes the modules-load.d decision below): the unit pulls in
   systemd's stock `modprobe@cuse.service` (`Wants=` and `After=`) and
   requires `dev-cuse.device`, which udev only announces after

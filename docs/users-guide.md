@@ -78,14 +78,17 @@ it to load at boot; starting the service does that.
 
 ```bash
 # Rocky Linux 10
-sudo dnf install ./guildmaster-0.1^20251202git463382b-1.el10.x86_64.rpm
+sudo dnf install ./guildmaster-0.1.20251202git463382b-1.el10.x86_64.rpm
 
 # Fedora 43
-sudo dnf install ./guildmaster-0.1^20251202git463382b-1.fc43.x86_64.rpm
+sudo dnf install ./guildmaster-0.1.20251202git463382b-1.fc43.x86_64.rpm
 ```
 
-The caret is part of the version; quote the file name if your shell treats
-`^` specially. DNF installs the one runtime dependency, `fuse3-libs`.
+The package version is `0.1^20251202git463382b`. GitHub does not accept a
+caret in an asset name, so the released files carry a full stop in its
+place; `SHA256SUMS` uses the same names. The file name is not part of an
+RPM's identity: `rpm -q guildmaster` reports the real version. DNF installs
+the one runtime dependency, `fuse3-libs`.
 
 Installation creates the following and starts nothing.
 
@@ -230,3 +233,9 @@ configuration file you edited is kept as `/etc/sysconfig/guildmaster.rpmsave`.
 The `guildmaster` account and both groups are left in place, as is usual for
 system accounts. `/dev/cuse` keeps its group until the module is reloaded or
 the host reboots.
+
+On Rocky Linux 10, RPM does not reload systemd when a package removes a unit
+file; this is true of every package there. `systemctl` may therefore still
+list `guildmaster.service` as loaded and inactive until you run
+`sudo systemctl daemon-reload` or reboot. On Fedora 43 the reload happens by
+itself.

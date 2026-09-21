@@ -3,11 +3,3 @@ test: ./test.sh
 order: 50
 require:
   - rpmlint
-adjust:
-  - when: distro == rocky-10
-    because: >
-        rpmlint is not in Rocky Linux 10's BaseOS, AppStream or CRB; EPEL 10
-        provides it. EPEL is enabled for this test harness dependency only.
-    prepare+:
-      - how: shell
-        script: dnf -y install epel-release

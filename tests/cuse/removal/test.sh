@@ -9,7 +9,15 @@ check 'dnf removes the package' dnf -y remove guildmaster
 check_not 'the package is gone' rpm -q guildmaster
 check_not 'no guildmaster process remains' process_exists guildmaster
 check_not '/dev/guild is gone' test -e /dev/guild
-check_equal 'systemd no longer knows the unit' "$(unit_property LoadState)" not-found
+check_not 'the unit file is removed' test -e /usr/lib/systemd/system/guildmaster.service
+check_equal 'nothing is left running' "$(unit_property ActiveState)" inactive
+# Fedora's RPM reloads systemd when a unit file is removed. Rocky Linux 10's
+# does not, for any package (a stock irqbalance behaves the same), so there
+# the manager lists the unit as a stale "loaded" entry until the next reload.
+# That is recorded, not asserted; the documented operator step then clears it.
+echo "LoadState straight after removal: $(unit_property LoadState)"
+systemctl daemon-reload
+check_equal 'systemd no longer knows the unit after a reload' "$(unit_property LoadState)" not-found
 check_not 'no enablement symlink is left behind' \
     test -e /etc/systemd/system/multi-user.target.wants/guildmaster.service
 for path in /usr/bin/guildmaster /usr/bin/gm-run /usr/lib/udev/rules.d/70-guildmaster.rules; do

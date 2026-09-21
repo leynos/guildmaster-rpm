@@ -18,7 +18,15 @@ for path in /usr/bin/guildmaster /usr/bin/gm-run \
 done
 check_not 'no enablement symlink is left behind' \
     test -e /etc/systemd/system/multi-user.target.wants/guildmaster.service
-check_equal 'systemd no longer knows the unit' "$(unit_property LoadState)" not-found
+check_not 'the unit file is removed' test -e /usr/lib/systemd/system/guildmaster.service
+check_equal 'nothing is left running' "$(unit_property ActiveState)" inactive
+# Fedora's RPM reloads systemd when a unit file is removed. Rocky Linux 10's
+# does not, for any package (a stock irqbalance behaves the same), so there
+# the manager lists the unit as a stale "loaded" entry until the next reload.
+# That is recorded, not asserted; the documented operator step then clears it.
+echo "LoadState straight after removal: $(unit_property LoadState)"
+systemctl daemon-reload
+check_equal 'systemd no longer knows the unit after a reload' "$(unit_property LoadState)" not-found
 # RPM keeps a modified %config(noreplace) file as .rpmsave.
 check 'edited configuration is kept as .rpmsave' test -f /etc/sysconfig/guildmaster.rpmsave
 check 'and still holds the operator setting' \
