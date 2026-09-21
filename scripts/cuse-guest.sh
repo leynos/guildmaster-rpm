@@ -54,6 +54,7 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 : "${VIRSH:=virsh}"
 : "${PREFLIGHT:=${repo_root}/scripts/virt-preflight.sh}"
 : "${IMAGE_SCRIPT:=${repo_root}/scripts/cuse-image.sh}"
+: "${IMAGES_TSV:=${repo_root}/fixtures/cuse/images.tsv}"
 : "${CACHE_DIR:=${repo_root}/.build}"
 : "${LOCK_DIR:=${CACHE_DIR}/locks}"
 : "${EVIDENCE_DIR:=${CACHE_DIR}/evidence}"
@@ -242,7 +243,7 @@ else
 fi
 image_sha256=$(awk -F'\t' -v target="${target}" -v arch="$(uname -m)" \
     '$0 !~ /^#/ && $1 == target && $2 == arch { print $4 }' \
-    "${repo_root}/fixtures/cuse/images.tsv")
+    "${IMAGES_TSV}")
 [[ $(checksum_of "${image}") == "${image_sha256}" ]] ||
     die "${image} does not match the SHA-256 pinned for ${target}"
 log_event image_verified "image=$(basename "${image}")" "sha256=${image_sha256}"
