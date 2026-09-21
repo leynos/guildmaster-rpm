@@ -1,0 +1,66 @@
+.TH GUILDMASTER 8 "2026-09-21" "guildmaster 0.1" "System Administration"
+.SH NAME
+guildmaster \- machine-wide GNU Make jobserver on /dev/guild
+.SH SYNOPSIS
+.B guildmaster
+.RB [ \-\-tokens
+.IR N ]
+.RI [ "FUSE options" ]
+.SH DESCRIPTION
+.B guildmaster
+is a CUSE (character device in userspace) server. It creates
+.I /dev/guild
+and serves it as a FIFO-like GNU Make jobserver shared by every build on the
+machine. A client reads one byte to take a token and writes one byte to
+return it. Tokens are accounted per opening process: when a process's last
+handle on the device is closed, including when the process dies, any tokens
+it still holds return to the pool.
+.PP
+It needs read and write access to
+.IR /dev/cuse ,
+and therefore the
+.B cuse
+kernel module. It is normally run by
+.BR guildmaster.service .
+.SH OPTIONS
+.TP
+.BI \-\-tokens " N\fR, " \-\-tokens= N
+Set the capacity of the token pool to
+.IR N ,
+a positive decimal integer. Zero, signed, malformed and out-of-range values
+are rejected with a diagnostic and exit status 2 before any device is
+opened. Without this option the capacity is the number of online processors
+plus one. If given more than once, the last value is used. This option is a
+downstream addition carried by the RPM packaging.
+.PP
+Remaining arguments are passed to libfuse; see
+.BR fuse (8).
+.SH CONFIGURATION
+The packaged service reads
+.I /etc/sysconfig/guildmaster
+and passes
+.B GUILDMASTER_OPTS
+to the daemon, for example
+.BR GUILDMASTER_OPTS="\-\-tokens=2" .
+.SH NOTES
+A token count limits how many cooperating jobs run at once. It is not a
+limit on processor threads or memory.
+.PP
+Restarting the daemon removes
+.I /dev/guild
+and creates a fresh pool. Handles opened before the restart stop working and
+are not counted against the new pool, so let running builds finish before
+restarting.
+.SH EXIT STATUS
+0 when the session ends normally, 2 for an invalid
+.B \-\-tokens
+value, and 1 for any other failure.
+.SH FILES
+.I /dev/cuse
+.br
+.I /dev/guild
+.br
+.I /etc/sysconfig/guildmaster
+.SH SEE ALSO
+.BR gm\-run (1),
+.BR make (1)

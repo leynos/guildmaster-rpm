@@ -113,8 +113,15 @@ fresh-guest CUSE acceptance plan.
 - [x] (2026-09-21 17:30Z) Drafted this plan.
 - [x] (2026-09-21 18:00Z) Plan approved by the user; the approval answered
   the host-tooling question with an instruction to proceed as planned.
-- [ ] EP-M1 virtualization prototype.
-- [ ] EP-M2 capacity patch and spec.
+- [x] (2026-09-21 18:50Z) EP-M1 virtualization prototype: host tooling
+  installed; a disposable Rocky 10 guest booted through
+  `tmt … provision --how virtual --connection session` with KVM under WSL2;
+  the trial RPM's service started unprivileged under SELinux enforcing with
+  no AVC denials, and group permissions and capacity two held.
+- [ ] EP-M2 capacity patch and spec (completed: patch with red/green option
+  test, spec, unit, sysusers, udev rules, man pages, trial builds on both
+  targets; remaining: SRPM rebuild and versioning tests, which land with the
+  build script and container tier).
 - [ ] EP-M3 build scripts, unit suite and model checks.
 - [ ] EP-M4 rootless systemd container tier.
 - [ ] EP-M5 CUSE guest tier.
@@ -151,7 +158,44 @@ fresh-guest CUSE acceptance plan.
   because `systemd-resolved` fails (Podman manages `/etc/resolv.conf`).
   Impact: either mask-free fixture fix or a named documented exception.
 
+- Observation: Rocky Linux 10's GenericCloud image installs only
+  `kernel-modules-core`; `cuse.ko.xz` is in `kernel-modules-extra` (which
+  pulls in `kernel-modules`), verified in the guest for kernel
+  `6.12.0-211.16.1.el10_2.0.1.x86_64`. The matching package was installable
+  without a kernel update or reboot.
+- Observation: tmt copies an absolute-path image into its own cache,
+  `/var/tmp/tmt/testcloud/images/<basename>`, and boots an overlay of that
+  copy. The repository's verified image was unchanged after the run.
+  Impact: INV-OVERLAY must hash tmt's cached copy as well as ours.
+- Observation: under SELinux enforcing the daemon runs as
+  `system_u:system_r:unconfined_service_t:s0` with no AVC denials. The
+  package ships no SELinux policy, so SELinux does not confine the daemon;
+  confinement comes from the unprivileged account and unit sandboxing.
+- Observation: `%udev_rules_update` expands to nothing on both targets;
+  systemd's file triggers reload udev rules.
+- Observation: RPM file names contain `^`. GitHub may rewrite unusual
+  characters in release asset names, which would break `SHA256SUMS`.
+  Impact: verify in EP-M7 before relying on it; treat as a risk.
+- Observation: piping `rpmbuild` into `head` kills the build with SIGPIPE.
+  Impact: always log to a file and inspect afterwards.
+
 ## Decision log
+
+- Decision (supersedes the modules-load.d decision below): the unit pulls in
+  systemd's stock `modprobe@cuse.service` (`Wants=` and `After=`) and
+  requires `dev-cuse.device`, which udev only announces after
+  `70-guildmaster.rules` has applied the group and the `systemd` tag. The
+  module is therefore loaded on demand when the service starts, at boot or
+  by hand, and never on hosts that leave the service disabled. No
+  `modules-load.d` file is shipped. The prototype showed the first design
+  could not start after installation without a reboot, because
+  `modules-load.d` is only read at boot.
+  Date/Author: 2026-09-21, Claude.
+- Decision (refines the capacity decision below): the sysconfig variable is
+  `GUILDMASTER_OPTS`, matching upstream's OpenRC `conf.d` name, so that
+  Ansible writes `GUILDMASTER_OPTS="--tokens=2"`. A dedicated token variable
+  would need shell logic in the unit to omit the option when unset.
+  Date/Author: 2026-09-21, Claude.
 
 - Decision: snapshot versioning `0.1^YYYYMMDDgit<short>` with `Release:
   N%{?dist}`, no epoch. Upstream declares version `0.1` in `meson.build` but
@@ -385,10 +429,9 @@ Package interface promised to `dev-env-rocky`:
 /usr/bin/guildmaster  [--tokens N] [FUSE options]
 /usr/bin/gm-run <command> [args…]
 /usr/lib/systemd/system/guildmaster.service      (disabled by preset)
-/etc/sysconfig/guildmaster                       (config, noreplace): GUILDMASTER_TOKENS=
+/etc/sysconfig/guildmaster                       (config, noreplace): GUILDMASTER_OPTS=
 /usr/lib/sysusers.d/guildmaster.conf         user guildmaster; group guild
 /usr/lib/udev/rules.d/70-guildmaster.rules   /dev/cuse, /dev/guild group rules
-/usr/lib/modules-load.d/guildmaster.conf         cuse
 ```
 
 Host tooling to install with approval: `tmt+provision-virtual`, libvirt
