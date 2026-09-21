@@ -118,10 +118,8 @@ fresh-guest CUSE acceptance plan.
   `tmt … provision --how virtual --connection session` with KVM under WSL2;
   the trial RPM's service started unprivileged under SELinux enforcing with
   no AVC denials, and group permissions and capacity two held.
-- [ ] EP-M2 capacity patch and spec (completed: patch with red/green option
-  test, spec, unit, sysusers, udev rules, man pages, trial builds on both
-  targets; remaining: SRPM rebuild and versioning tests, which land with the
-  build script and container tier).
+- [x] (2026-09-21 20:00Z) EP-M2 capacity patch and spec, including the SRPM
+  rebuild in every build and the version-ordering test.
 - [x] (2026-09-21 20:00Z) EP-M3 build scripts, unit suite and model checks.
   Delegated to a journeyman. The real three-phase builds pass on both
   targets: dependencies with network, then `rpmbuild -ba` and a clean SRPM
@@ -129,17 +127,14 @@ fresh-guest CUSE acceptance plan.
   and image removed. `make unit`: 52 build-script cases, 84 fixture checks,
   68 CUSE-script checks, 22 executed scenarios and 10408 abstract schedules
   in the bounded model, four seeded model faults rejected.
-- [ ] EP-M4 rootless systemd container tier (completed 2026-09-21: fixture,
-  preflight, adapter with 84 offline checks and three killed mutants, eight
-  container tests passing on Fedora 43 against a provisional build;
-  remaining: Rocky run, Makefile targets, runs against real builds).
-- [ ] EP-M5 CUSE guest tier (completed 2026-09-21: image cache, virt
-  preflight, guest wrapper, thirteen guest tests passing in a fresh
-  Fedora 43 guest against a provisional build; remaining: Rocky run,
-  offline tests for the image cache and wrapper, runs against real builds).
-- [ ] EP-M6 documentation and lint gates (completed: README, users' guide,
-  ADR, changelog, licence, AGENTS.md, `make lint`; remaining: developers'
-  guide, delegated to a scribe).
+- [x] (2026-09-21 21:05Z) EP-M4 rootless systemd container tier: eight tests
+  pass on both targets against real builds (host without SELinux, so
+  userspace evidence only).
+- [x] (2026-09-21 21:05Z) EP-M5 CUSE guest tier: thirteen tests pass in fresh
+  guests on both targets against real builds, SELinux enforcing.
+- [x] (2026-09-21 20:20Z) EP-M6 documentation and lint gates.
+- [x] (2026-09-21 21:05Z) `make release-check` passed on a clean tree at
+  `fb84046`; log and evidence kept in the session scratchpad.
 - [ ] EP-M7 CI, draft PR and review (completed: CI, acceptance and release
   workflows, assembly and evidence scripts; remaining: offline tests for
   those scripts (delegated), CodeRabbit review, draft PR, hosted runs).
@@ -236,6 +231,23 @@ fresh-guest CUSE acceptance plan.
   65 seconds for the next target.
 - Observation: a stale zero-byte `.git/index.lock` appeared during that
   stall with no git process alive; it was removed after checking.
+
+- Observation: Rocky Linux 10's RPM (4.19) does not run systemd's reload
+  file trigger when a package removes a unit file; a stock `irqbalance`
+  behaves identically, in a container and in a guest. `systemctl` lists the
+  removed unit as loaded and inactive until the next `daemon-reload`.
+  Fedora 43 reloads by itself. Impact: recorded in the removal tests,
+  asserted after the documented reload, and documented for operators.
+- Observation: the journeyman's open questions for real builds were all
+  answered by them: the committed dependency image works for the
+  network-isolated phases, `dnf builddep` needs no `SOURCES` tree, CRB is
+  enabled on Rocky, the debug package names and the `(none)` epoch are as
+  validated, and the SRPM reports the build architecture.
+- Observation: a test cannot extend a plan's `prepare` step through
+  `adjust`; enabling EPEL for rpmlint on Rocky moved to the plan.
+- Residual gap: phase B's in-container payload-path guard and manifest
+  writer are exercised only by real builds, not by the offline suite. The
+  host re-validates the manifest fully.
 
 ## Decision log
 

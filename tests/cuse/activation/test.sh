@@ -35,8 +35,13 @@ check_equal '/dev/cuse is restricted to the daemon group' \
 check_equal '/dev/guild is restricted to the client group' \
     "$(stat -c '%U:%G %a %F' /dev/guild)" 'root:guild 660 character special file'
 
-echo "daemon SELinux context: $(cat "/proc/${main_pid}/attr/current" | tr -d '\0')"
-echo "device labels: $(stat -c '%n %C' /dev/cuse /dev/guild | paste -sd' ')"
+# Recorded as evidence, not asserted: the package ships no SELinux policy, so
+# the domain is whatever the distribution's policy gives an ordinary service.
+{
+    echo "daemon_selinux_context: $(tr -d '\0' <"/proc/${main_pid}/attr/current")"
+    echo "dev_cuse_after_activation: $(stat -c '%U:%G %a %C' /dev/cuse)"
+    echo "dev_guild_after_activation: $(stat -c '%U:%G %a %C' /dev/guild)"
+} | tee -a "${GM_GUEST_FACTS:?}"
 denials=$(ausearch -m avc,user_avc -ts boot 2>/dev/null | grep -E 'guild|cuse' || true)
 check_equal 'no AVC denials mention guildmaster or CUSE' "${denials}" ''
 check_equal 'SELinux is still enforcing' "$(getenforce)" Enforcing
