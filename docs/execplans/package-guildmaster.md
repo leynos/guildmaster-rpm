@@ -122,9 +122,17 @@ fresh-guest CUSE acceptance plan.
   test, spec, unit, sysusers, udev rules, man pages, trial builds on both
   targets; remaining: SRPM rebuild and versioning tests, which land with the
   build script and container tier).
-- [ ] EP-M3 build scripts, unit suite and model checks.
-- [ ] EP-M4 rootless systemd container tier.
-- [ ] EP-M5 CUSE guest tier.
+- [ ] EP-M3 build scripts, unit suite and model checks (delegated to a
+  journeyman; build, clean, unit suite, model check and Makefile committed;
+  awaiting its report and a real container build by the lead).
+- [ ] EP-M4 rootless systemd container tier (completed 2026-09-21: fixture,
+  preflight, adapter with 84 offline checks and three killed mutants, eight
+  container tests passing on Fedora 43 against a provisional build;
+  remaining: Rocky run, Makefile targets, runs against real builds).
+- [ ] EP-M5 CUSE guest tier (completed 2026-09-21: image cache, virt
+  preflight, guest wrapper, thirteen guest tests passing in a fresh
+  Fedora 43 guest against a provisional build; remaining: Rocky run,
+  offline tests for the image cache and wrapper, runs against real builds).
 - [ ] EP-M6 documentation and lint gates.
 - [ ] EP-M7 CI, draft PR and review.
 - [ ] EP-M8 release and post-publication verification.
@@ -178,6 +186,36 @@ fresh-guest CUSE acceptance plan.
   Impact: verify in EP-M7 before relying on it; treat as a risk.
 - Observation: piping `rpmbuild` into `head` kills the build with SIGPIPE.
   Impact: always log to a file and inspect afterwards.
+
+- Observation: tmt copies the whole fmf root into every run and refuses a
+  run directory inside it. Impact: run directories live under
+  `/var/tmp/tmt/<unique id>`; the VM image cache lives per user under
+  `~/.cache/guildmaster-rpm/images`, outside the repository.
+- Observation: tmt's Podman plugin adopts an existing container with
+  `provision --container NAME`, provided its run directory is bind-mounted
+  at the same path. This is the adapter's hand-off; no SSH is needed.
+- Observation: Fedora's weak dependencies pull `systemd-resolved` into the
+  fixture, where it fails at step USER because `CAP_NET_RAW` is outside
+  rootless Podman's bounding set. Without weak dependencies both fixtures
+  boot to `running`, so there are no allowed failed units.
+- Observation: tmt 1.78 saves a command-line `--hardware cpu.processors=N`
+  as `{and: [{cpu.processors: ...}]}`, which `Hardware.from_spec` rejects
+  with `KeyError: 'processors'` on any later invocation of the same run,
+  including cleanup. The first guest run leaked its domain because of it
+  (removed by name). Impact: resources go through tmt context into the
+  plan's hardware block, and the wrapper has a by-name fallback cleanup.
+- Observation: with `Type=exec`, `systemctl restart` succeeds even when the
+  daemon then rejects `--tokens=0`; the unit is `failed` with
+  `ExecMainStatus=2` immediately afterwards. Documented, and the test waits
+  for the state instead of trusting the exit status.
+- Observation: the Fedora 43 cloud image already contains `fuse3-libs`; the
+  Rocky image and both container bases do not, so dependency installation
+  is demonstrated there.
+- Observation: the Fedora 43 GA image needed a kernel update and one reboot
+  to obtain a matching `kernel-modules-extra` (kernel 7.2.5-100.fc43); the
+  preflight test handles this through `tmt-reboot` and records the kernel.
+- Observation: container base images set `tsflags=nodocs`; the install test
+  overrides it so that manual pages and the licence are checked.
 
 ## Decision log
 
