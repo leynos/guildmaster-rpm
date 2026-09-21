@@ -1,0 +1,3 @@
+summary: Upgrading preserves configuration and activation state
+test: ./test.sh
+order: 70

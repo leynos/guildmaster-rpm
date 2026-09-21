@@ -1,0 +1,3 @@
+summary: Clean pre-state, installation, identity, manifest, accounts and preset
+test: ./test.sh
+order: 10

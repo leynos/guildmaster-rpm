@@ -1,0 +1,3 @@
+summary: The --tokens option of the installed daemon, without CUSE
+test: ./test.sh
+order: 30

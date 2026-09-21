@@ -1,0 +1,22 @@
+# Test fixture: the distribution's real systemd as PID 1, for rootless Podman.
+# Built by scripts/systemd-fixture.sh from a digest-pinned base image; the
+# image tag is keyed on that digest and on the bytes of this file.
+#
+# Weak dependencies are left out deliberately. On Fedora they pull in
+# systemd-resolved, which cannot start in a rootless container: it asks for
+# CAP_NET_RAW as an ambient capability, which Podman's default bounding set
+# does not include, so the unit fails at step USER and the system boots
+# "degraded". Nothing under test needs it.
+#
+# The machine identity is left empty so that no identity is baked into the
+# image; systemd generates one at each boot.
+ARG BASE
+FROM ${BASE}
+
+RUN dnf -y --setopt=install_weak_deps=False install systemd dbus \
+    && dnf clean all \
+    && rm -f /etc/machine-id /var/lib/dbus/machine-id \
+    && touch /etc/machine-id
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/usr/lib/systemd/systemd"]

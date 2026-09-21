@@ -1,0 +1,4 @@
+summary: Starting the production unit without CUSE fails as documented
+test: ./test.sh
+order: 40
+duration: 10m

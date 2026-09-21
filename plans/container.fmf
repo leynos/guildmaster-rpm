@@ -1,0 +1,15 @@
+summary: Package and service-management checks under real systemd in a container
+description: |
+    Run by scripts/systemd-fixture.sh, which starts a rootless Podman
+    container with the distribution's systemd as PID 1 and hands it to tmt
+    with `provision --how container --container NAME`. Containers share the
+    host's kernel and have no CUSE device, so this plan covers packaging,
+    the installed production unit and its behaviour without CUSE. It never
+    reports guildmaster as operating; /plans/cuse does that in a real guest.
+discover:
+    how: fmf
+    filter: 'tag:container'
+provision:
+    how: container
+execute:
+    how: tmt

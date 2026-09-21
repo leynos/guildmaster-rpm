@@ -1,0 +1,3 @@
+summary: Removal disables the service and keeps edited configuration
+test: ./test.sh
+order: 80
