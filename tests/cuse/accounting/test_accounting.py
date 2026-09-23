@@ -36,10 +36,42 @@ READ_SYSCALL = {"x86_64": "0", "aarch64": "63"}[platform.machine()]
 
 
 class CheckFailed(Exception):
-    pass
+    """Raised when a scenario observes behaviour other than what it expects.
+
+    Parameters
+    ----------
+    *args : object
+        Passed through to :class:`Exception`; conventionally a single
+        message describing which check failed and why.
+    """
 
 
 class Client:
+    """A gmclient.py process run as the authorized test user, driven over pipes.
+
+    Parameters
+    ----------
+    name : str
+        A short label for the client, used to identify it in failure
+        messages.
+
+    Attributes
+    ----------
+    name : str
+        The label passed to the constructor.
+    process : subprocess.Popen[str]
+        The running gmclient.py process, connected via ``setpriv``.
+    pid : int
+        The process ID of the client, as reported by its own ``pid``
+        command, verified to match the started process.
+
+    Raises
+    ------
+    CheckFailed
+        If the client's reported PID does not match the PID of the process
+        that was started.
+    """
+
     def __init__(self, name: str) -> None:
         self.name = name
         self.process = subprocess.Popen(
@@ -63,26 +95,100 @@ class Client:
             raise CheckFailed(f"{name}: the client is not the process that was started")
 
     def send(self, command: str) -> None:
-        assert self.process.stdin is not None
+        """Write one command line to the client's stdin and flush it.
+
+        Parameters
+        ----------
+        command : str
+            The command to send, without a trailing newline.
+
+        Returns
+        -------
+        None
+        """
+        assert self.process.stdin is not None, "client stdin pipe was not created"
         self.process.stdin.write(command + "\n")
         self.process.stdin.flush()
 
     def has_answer(self, timeout: float) -> bool:
-        assert self.process.stdout is not None
+        """Report whether the client's stdout has an answer ready to read.
+
+        Parameters
+        ----------
+        timeout : float
+            Seconds to wait for output to become readable; ``0`` polls
+            without blocking.
+
+        Returns
+        -------
+        bool
+            ``True`` if the client's stdout is ready for reading within
+            ``timeout`` seconds, ``False`` otherwise.
+        """
+        assert self.process.stdout is not None, "client stdout pipe was not created"
         ready, _, _ = select.select([self.process.stdout], [], [], timeout)
         return bool(ready)
 
     def answer(self) -> str:
+        """Read and return the client's next answer line.
+
+        Returns
+        -------
+        str
+            The next answer line from the client's stdout, with the
+            trailing newline stripped.
+
+        Raises
+        ------
+        CheckFailed
+            If no answer arrives within :data:`WAIT_SECONDS`.
+        """
         if not self.has_answer(WAIT_SECONDS):
             raise CheckFailed(f"{self.name}: no answer within {WAIT_SECONDS}s")
-        assert self.process.stdout is not None
+        assert self.process.stdout is not None, "client stdout pipe was not created"
         return self.process.stdout.readline().strip()
 
     def ask(self, command: str) -> str:
+        """Send a command and return the client's answer to it.
+
+        Parameters
+        ----------
+        command : str
+            The command to send, without a trailing newline.
+
+        Returns
+        -------
+        str
+            The client's answer line, with the trailing newline stripped.
+
+        Raises
+        ------
+        CheckFailed
+            If no answer arrives within :data:`WAIT_SECONDS`.
+        """
         self.send(command)
         return self.answer()
 
     def expect(self, command: str, wanted: str) -> None:
+        """Send a command and assert that the answer matches exactly.
+
+        Parameters
+        ----------
+        command : str
+            The command to send, without a trailing newline.
+        wanted : str
+            The exact answer expected in response.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        CheckFailed
+            If no answer arrives within :data:`WAIT_SECONDS`, or if the
+            answer received does not equal ``wanted``.
+        """
         got = self.ask(command)
         if got != wanted:
             raise CheckFailed(
@@ -90,13 +196,42 @@ class Client:
             )
 
     def open(self) -> int:
+        """Send ``open`` and return the handle the client assigned.
+
+        Returns
+        -------
+        int
+            The integer handle reported in the client's ``opened
+            <handle>`` answer.
+
+        Raises
+        ------
+        CheckFailed
+            If no answer arrives within :data:`WAIT_SECONDS`, or if the
+            answer does not start with ``"opened "``.
+        """
         answer = self.ask("open")
         if not answer.startswith("opened "):
             raise CheckFailed(f"{self.name}: open answered '{answer}'")
         return int(answer.split()[1])
 
     def wait_until_blocked_in_read(self) -> None:
-        """Positively observe the client sleeping inside read(2)."""
+        """Positively observe the client sleeping inside read(2).
+
+        Polls ``/proc/<pid>/syscall`` and the client's stdout, bounded by
+        :data:`WAIT_SECONDS`, until the process is inside a read(2) syscall
+        with no answer yet pending.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        CheckFailed
+            If the client is never observed blocked in read(2) within
+            :data:`WAIT_SECONDS`.
+        """
         deadline = time.monotonic() + WAIT_SECONDS
         while time.monotonic() < deadline:
             syscall = Path(f"/proc/{self.pid}/syscall").read_text().split()
@@ -106,10 +241,27 @@ class Client:
         raise CheckFailed(f"{self.name}: never observed blocked in read(2)")
 
     def kill(self) -> None:
+        """Send SIGKILL to the client and wait for it to exit.
+
+        Returns
+        -------
+        None
+        """
         self.process.send_signal(signal.SIGKILL)
         self.process.wait(timeout=WAIT_SECONDS)
 
     def finish(self) -> None:
+        """Ask the client to exit cleanly, killing it if that fails.
+
+        Sends ``exit`` and waits for the process to exit, bounded by
+        :data:`WAIT_SECONDS`. Does nothing if the process has already
+        exited. Falls back to SIGKILL if the pipe is broken or the process
+        does not exit in time.
+
+        Returns
+        -------
+        None
+        """
         if self.process.poll() is None:
             try:
                 self.send("exit")

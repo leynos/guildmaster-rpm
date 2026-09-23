@@ -25,10 +25,13 @@ check_equal 'the daemon runs as its own account' \
     "$(stat -c '%U:%G' "/proc/${main_pid}")" guildmaster:guildmaster
 check_equal 'the daemon was given the configured option' \
     "$(tr '\0' ' ' <"/proc/${main_pid}/cmdline")" '/usr/bin/guildmaster --tokens=2 '
+# Type=exec reports the unit started once the daemon is executed; what it
+# does next is awaited, with a bound.
 check 'the daemon logged capacity two' \
-    sh -c 'journalctl -b --no-pager -u guildmaster.service | grep -q "token pool capacity 2$"'
+    wait_for 10 sh -c 'journalctl -b --no-pager -u guildmaster.service | grep -q "token pool capacity 2$"'
 
 check 'starting the service loaded cuse on demand' grep -qw '^cuse' /proc/modules
+check 'the daemon created /dev/guild' wait_for 10 test -c /dev/guild
 udevadm settle --timeout=10
 check_equal '/dev/cuse is restricted to the daemon group' \
     "$(stat -c '%U:%G %a %F' /dev/cuse)" 'root:guildmaster 660 character special file'

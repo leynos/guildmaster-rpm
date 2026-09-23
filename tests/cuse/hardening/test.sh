@@ -36,9 +36,25 @@ in_service() {
 }
 check 'the probe really runs as the service account' \
     sh -c "[ \"\$(nsenter --target ${pid} --mount --net -- setpriv --reuid guildmaster --regid guildmaster --clear-groups id -un)\" = guildmaster ]"
-check_not 'ProtectSystem: /etc is not writable' in_service touch /etc/gm-hardening-probe
-check_not 'ProtectSystem: /usr is not writable' in_service touch /usr/gm-hardening-probe
-check_not 'ProtectHome: /home is not listable' in_service ls /home/gm-member
+# The file-system protections are probed as root inside the daemon's mount
+# namespace, so that file permissions cannot be what makes them hold.
+in_service_mounts() {
+    nsenter --target "${pid}" --mount -- "$@"
+}
+check 'control: root can write to /etc in the host view' \
+    sh -c 'touch /etc/gm-hardening-control && rm /etc/gm-hardening-control'
+check_not 'ProtectSystem: /etc is read-only, even for root' \
+    in_service_mounts touch /etc/gm-hardening-probe
+check_not 'ProtectSystem: /usr is read-only, even for root' \
+    in_service_mounts touch /usr/gm-hardening-probe
+check 'control: the member home exists in the host view' test -d /home/gm-member
+# Listing must succeed, so that an empty result means an empty directory
+# and not an error.
+if home_listing=$(in_service_mounts ls -A /home); then
+    check_equal 'ProtectHome: /home appears empty, even to root' "${home_listing}" ''
+else
+    fail 'ProtectHome: root could not list /home in the service mount namespace'
+fi
 check_equal 'PrivateNetwork: only loopback exists' \
     "$(in_service ls /sys/class/net | paste -sd' ')" lo
 check_not 'no probe file leaked into the host view' test -e /etc/gm-hardening-probe -o -e /usr/gm-hardening-probe

@@ -60,6 +60,18 @@ check_equal() {
     fi
 }
 
+# wait_for <seconds> <command...>: bounded wait for a state, never a bare
+# sleep. The pause between attempts is pacing only; the assertion is the
+# command's success.
+wait_for() {
+    local deadline=$((SECONDS + $1))
+    shift
+    until "$@"; do
+        ((SECONDS < deadline)) || return 1
+        sleep 0.2
+    done
+}
+
 # One machine-readable unit property; never parse `systemctl status`.
 unit_property() {
     systemctl show "${2:-guildmaster.service}" --property "$1" --value

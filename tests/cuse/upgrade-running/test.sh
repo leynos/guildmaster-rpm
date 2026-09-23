@@ -47,5 +47,5 @@ check 'restart after draining' systemctl restart guildmaster.service
 new_pid=$(unit_property MainPID)
 check_equal 'the new executable is now running' "$(readlink "/proc/${new_pid}/exe")" /usr/bin/guildmaster
 check 'the daemon still logs capacity two' \
-    sh -c "journalctl -b --no-pager _PID=${new_pid} | grep -q 'token pool capacity 2\$'"
+    wait_for 10 sh -c "journalctl -b --no-pager _PID=${new_pid} | grep -q 'token pool capacity 2\$'"
 finish

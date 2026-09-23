@@ -3,15 +3,6 @@
 set -uo pipefail
 . ../../lib/common.sh
 
-# wait_for <seconds> <command...>: bounded wait for a state, never a bare sleep.
-wait_for() {
-    local deadline=$((SECONDS + $1))
-    shift
-    until "$@"; do
-        ((SECONDS < deadline)) || return 1
-        sleep 0.2
-    done
-}
 pool_free() {
     runuser -u gm-member -- python3 -c '
 import os
