@@ -35,41 +35,52 @@ def set_nonblocking(fd: int, enabled: bool) -> None:
     fcntl.fcntl(fd, fcntl.F_SETFL, flags)
 
 
-def run_command(handles: dict[int, int], words: list[str]) -> str:
-    command = words[0]
-    if command == "pid":
-        return f"pid {os.getpid()}"
-    if command == "open":
-        handle = max(handles, default=0) + 1
-        handles[handle] = os.open(DEVICE, os.O_RDWR | os.O_CLOEXEC)
-        return f"opened {handle}"
-    if command == "fork":
-        child = os.fork()
-        if child == 0:
-            # Keep the inherited descriptors open and do nothing else.
-            while True:
-                signal.pause()
-        return f"forked {child}"
+def open_device(handles: dict[int, int]) -> str:
+    handle = max(handles, default=0) + 1
+    handles[handle] = os.open(DEVICE, os.O_RDWR | os.O_CLOEXEC)
+    return f"opened {handle}"
 
-    fd = handles[int(words[1])]
-    if command == "take":
-        set_nonblocking(fd, False)
+
+def fork_holder() -> str:
+    child = os.fork()
+    if child == 0:
+        # Keep the inherited descriptors open and do nothing else.
+        while True:
+            signal.pause()
+    return f"forked {child}"
+
+
+def read_token(fd: int, *, blocking: bool) -> str:
+    set_nonblocking(fd, not blocking)
+    try:
         return "token" if os.read(fd, 1) else "error EOF"
-    if command == "try":
-        set_nonblocking(fd, True)
-        try:
-            return "token" if os.read(fd, 1) else "error EOF"
-        except BlockingIOError:
-            return "empty"
-        finally:
-            set_nonblocking(fd, False)
-    if command == "give":
-        os.write(fd, b"+")
-        return "gave"
-    if command == "close":
-        os.close(handles.pop(int(words[1])))
-        return "closed"
-    return f"error unknown-command-{command}"
+    except BlockingIOError:
+        return "empty"
+    finally:
+        set_nonblocking(fd, False)
+
+
+def run_command(handles: dict[int, int], words: list[str]) -> str:
+    match words:
+        case ["pid"]:
+            return f"pid {os.getpid()}"
+        case ["open"]:
+            return open_device(handles)
+        case ["fork"]:
+            return fork_holder()
+        case ["take", handle]:
+            return read_token(handles[int(handle)], blocking=True)
+        case ["try", handle]:
+            return read_token(handles[int(handle)], blocking=False)
+        case ["give", handle]:
+            os.write(handles[int(handle)], b"+")
+            return "gave"
+        case ["close", handle]:
+            os.close(handles.pop(int(handle)))
+            return "closed"
+        case [command, *_]:
+            return f"error unknown-command-{command}"
+    return "error empty-command"
 
 
 def main() -> int:

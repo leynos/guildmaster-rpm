@@ -404,6 +404,97 @@ def build_env(outcome: str) -> dict[str, str]:
     return {}
 
 
+def check_exit_status(
+    result: subprocess.CompletedProcess, *, expect_success: bool
+) -> None:
+    """Assert the build's exit status matches what the scenario expects."""
+    if expect_success and result.returncode != 0:
+        raise CheckFailure(
+            f"expected success, got {result.returncode}: {result.stderr}"
+        )
+    if not expect_success and result.returncode == 0:
+        raise CheckFailure("expected a non-zero exit status")
+
+
+def _check_i3_generation(
+    case: dict[str, object],
+    sandbox: Sandbox,
+    state: str,
+    recovery: tuple[str, ...],
+    *,
+    expect_success: bool,
+    primed: bool,
+) -> None:
+    """I3: the successful, rolled-back or recovery-retaining generation."""
+    if expect_success:
+        if state != "complete:current":
+            raise CheckFailure(f"expected the new generation, found {state}")
+    elif case["publish"] == "rollback_failure" and primed:
+        # I3's negative case: rollback failed, so the previous generation is
+        # preserved as recovery data rather than published.
+        if not recovery:
+            raise CheckFailure("the recoverable .previous directory was removed")
+        recovered = classify(sandbox.staging / recovery[0])
+        if recovered != "complete:previous":
+            raise CheckFailure(f"recovery data is {recovered}")
+    elif primed:
+        # I3: a failure before or during publication leaves the prior
+        # complete output in place, restoring it if rollback was needed.
+        if state != "complete:previous":
+            raise CheckFailure(f"expected the previous generation, found {state}")
+    elif state != "absent":
+        raise CheckFailure(f"expected no output, found {state}")
+
+
+def check_published_state(
+    case: dict[str, object], sandbox: Sandbox, *, expect_success: bool, primed: bool
+) -> None:
+    """Assert I1, I3 and the owned-staging half of I4 for the result."""
+    state = classify(sandbox.out)
+    owned, recovery = sandbox.staging_entries()
+
+    # I1: never partial, never mixed.
+    if state in ("partial", "mixed"):
+        raise CheckFailure(f"published output is {state}")
+
+    _check_i3_generation(
+        case, sandbox, state, recovery, expect_success=expect_success, primed=primed
+    )
+
+    # I4: nothing invocation-owned survives a failure.
+    if owned:
+        raise CheckFailure(f"invocation-owned staging left behind: {owned}")
+
+
+def check_invocation_residue(sandbox: Sandbox, pre_temps: set[str]) -> None:
+    """Assert the rest of I4: no temporary tarball, container, image or lock
+    left behind by this invocation."""
+    leaked = sandbox.temp_tarballs() - pre_temps
+    if leaked:
+        raise CheckFailure(f"temporary tarballs left behind: {sorted(leaked)}")
+    residue = sandbox.container_residue()
+    if residue:
+        raise CheckFailure(f"containers or images left behind: {residue}")
+    if not sandbox.locks_free():
+        raise CheckFailure("a lock is still held")
+
+
+def check_clean_after(sandbox: Sandbox) -> None:
+    """Run clean after the build and assert I2 in its simplest form."""
+    before_state = classify(sandbox.out)
+    clean_result = sandbox.run_clean()
+    if clean_result.returncode != 0:
+        raise CheckFailure(f"clean failed: {clean_result.stderr}")
+    # I2, in its simplest form: with no activity lock held, clean removes
+    # the output and the cache but keeps the lock directory.
+    if sandbox.out.exists():
+        raise CheckFailure(f"clean left the output in place (was {before_state})")
+    if (sandbox.cache / TARBALL).exists():
+        raise CheckFailure("clean left the cached tarball in place")
+    if not sandbox.locks.is_dir():
+        raise CheckFailure("clean removed the lock directory")
+
+
 def check_executed_case(
     case: dict[str, object], sandbox: Sandbox, bindir: Path
 ) -> None:
@@ -433,64 +524,12 @@ def check_executed_case(
             "rollback_failure",
         )
 
-    if expect_success and result.returncode != 0:
-        raise CheckFailure(
-            f"expected success, got {result.returncode}: {result.stderr}"
-        )
-    if not expect_success and result.returncode == 0:
-        raise CheckFailure("expected a non-zero exit status")
-
-    state = classify(sandbox.out)
-    owned, recovery = sandbox.staging_entries()
-
-    # I1: never partial, never mixed.
-    if state in ("partial", "mixed"):
-        raise CheckFailure(f"published output is {state}")
-
-    if expect_success:
-        if state != "complete:current":
-            raise CheckFailure(f"expected the new generation, found {state}")
-    elif case["publish"] == "rollback_failure" and primed:
-        # I3's negative case: rollback failed, so the previous generation is
-        # preserved as recovery data rather than published.
-        if not recovery:
-            raise CheckFailure("the recoverable .previous directory was removed")
-        recovered = classify(sandbox.staging / recovery[0])
-        if recovered != "complete:previous":
-            raise CheckFailure(f"recovery data is {recovered}")
-    elif primed:
-        # I3: a failure before or during publication leaves the prior
-        # complete output in place, restoring it if rollback was needed.
-        if state != "complete:previous":
-            raise CheckFailure(f"expected the previous generation, found {state}")
-    elif state != "absent":
-        raise CheckFailure(f"expected no output, found {state}")
-
-    # I4: nothing invocation-owned survives a failure.
-    if owned:
-        raise CheckFailure(f"invocation-owned staging left behind: {owned}")
-    leaked = sandbox.temp_tarballs() - pre_temps
-    if leaked:
-        raise CheckFailure(f"temporary tarballs left behind: {sorted(leaked)}")
-    residue = sandbox.container_residue()
-    if residue:
-        raise CheckFailure(f"containers or images left behind: {residue}")
-    if not sandbox.locks_free():
-        raise CheckFailure("a lock is still held")
+    check_exit_status(result, expect_success=expect_success)
+    check_published_state(case, sandbox, expect_success=expect_success, primed=primed)
+    check_invocation_residue(sandbox, pre_temps)
 
     if case["clean"] == "after":
-        before_state = classify(sandbox.out)
-        clean_result = sandbox.run_clean()
-        if clean_result.returncode != 0:
-            raise CheckFailure(f"clean failed: {clean_result.stderr}")
-        # I2, in its simplest form: with no activity lock held, clean removes
-        # the output and the cache but keeps the lock directory.
-        if sandbox.out.exists():
-            raise CheckFailure(f"clean left the output in place (was {before_state})")
-        if (sandbox.cache / TARBALL).exists():
-            raise CheckFailure("clean left the cached tarball in place")
-        if not sandbox.locks.is_dir():
-            raise CheckFailure("clean removed the lock directory")
+        check_clean_after(sandbox)
 
 
 def run_cancelled_build(
@@ -631,12 +670,8 @@ Step = tuple[str, Callable[[ModelState], None]]
 REACHED: set[str] = set()
 
 
-def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> list[Step]:
-    """The atomic steps of one build, as (label, function) pairs.
-
-    ``broken`` injects a deliberate modelling fault, used by the self-test to
-    show that this checker rejects a model that does not hold the invariants.
-    """
+def _fetch_and_deps_steps(name: str, scenario: dict[str, str]) -> list[Step]:
+    """Acquiring the activity lock, fetching, and the dependency phase."""
 
     def acquire_activity(state: ModelState) -> None:
         state.activity_holders += 1
@@ -648,6 +683,16 @@ def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> lis
         state.containers.add(name)
         if scenario["build"] == "deps_failure":
             raise _BuildAborted
+
+    return [
+        (f"{name}:activity", acquire_activity),
+        (f"{name}:fetch", fetch),
+        (f"{name}:phase_deps", phase_deps),
+    ]
+
+
+def _build_and_validate_steps(name: str, scenario: dict[str, str]) -> list[Step]:
+    """The commit, build and rebuild phases, followed by validation."""
 
     def phase_commit(state: ModelState) -> None:
         state.images.add(name)
@@ -667,6 +712,25 @@ def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> lis
         if scenario["build"] != "success":
             raise _BuildAborted
 
+    return [
+        (f"{name}:phase_commit", phase_commit),
+        (f"{name}:phase_build", phase_build),
+        (f"{name}:phase_rebuild", phase_rebuild),
+        (f"{name}:validate", validate),
+    ]
+
+
+def _build_phase_steps(name: str, scenario: dict[str, str]) -> list[Step]:
+    """The build-phase steps: fetching, the three container phases and
+    validation, as (label, function) pairs."""
+    return _fetch_and_deps_steps(name, scenario) + _build_and_validate_steps(
+        name, scenario
+    )
+
+
+def _publish_lock_and_publish_steps(name: str, scenario: dict[str, str]) -> list[Step]:
+    """Taking the publication lock and publishing (or beginning a fallback)."""
+
     def take_publish_lock(state: ModelState) -> None:
         if state.publish_lock_held:
             REACHED.add("publication_contention")
@@ -684,6 +748,17 @@ def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> lis
             state.publishing_fallback = True
             REACHED.add("fallback_window")
 
+    return [
+        (f"{name}:publish_lock", take_publish_lock),
+        (f"{name}:publish", publish),
+    ]
+
+
+def _make_finish_publish(
+    name: str, scenario: dict[str, str]
+) -> Callable[[ModelState], None]:
+    """Build the step that concludes a fallback publication, if any."""
+
     def finish_publish(state: ModelState) -> None:
         mode = scenario["publish"]
         if mode in ("first", "exchange"):
@@ -699,6 +774,17 @@ def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> lis
         if mode == "rollback_failure":
             raise _BuildAborted
 
+    return finish_publish
+
+
+def _release_steps(name: str, scenario: dict[str, str], *, broken: str) -> list[Step]:
+    """Releasing the publication and activity locks, as (label, function)
+    pairs.
+
+    ``broken`` injects a deliberate modelling fault, used by the self-test to
+    show that this checker rejects a model that does not hold the invariants.
+    """
+
     def release_publish_lock(state: ModelState) -> None:
         if broken == "leak_publication_lock":
             return
@@ -711,19 +797,43 @@ def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> lis
             state.staging.pop(name, None)
 
     return [
-        (f"{name}:activity", acquire_activity),
-        (f"{name}:fetch", fetch),
-        (f"{name}:phase_deps", phase_deps),
-        (f"{name}:phase_commit", phase_commit),
-        (f"{name}:phase_build", phase_build),
-        (f"{name}:phase_rebuild", phase_rebuild),
-        (f"{name}:validate", validate),
-        (f"{name}:publish_lock", take_publish_lock),
-        (f"{name}:publish", publish),
-        (f"{name}:finish_publish", finish_publish),
         (f"{name}:release_publish", release_publish_lock),
         (f"{name}:release_activity", release_activity),
     ]
+
+
+def _finish_and_release_steps(
+    name: str, scenario: dict[str, str], *, broken: str
+) -> list[Step]:
+    """Concluding a fallback publication and releasing both locks.
+
+    ``broken`` injects a deliberate modelling fault, used by the self-test to
+    show that this checker rejects a model that does not hold the invariants.
+    """
+    finish_step: Step = (f"{name}:finish_publish", _make_finish_publish(name, scenario))
+    return [finish_step, *_release_steps(name, scenario, broken=broken)]
+
+
+def _publication_steps(
+    name: str, scenario: dict[str, str], *, broken: str
+) -> list[Step]:
+    """The publication steps: taking the lock, publishing, unwinding a
+    fallback and releasing both locks, as (label, function) pairs."""
+    return [
+        *_publish_lock_and_publish_steps(name, scenario),
+        *_finish_and_release_steps(name, scenario, broken=broken),
+    ]
+
+
+def build_steps(name: str, scenario: dict[str, str], *, broken: str = "") -> list[Step]:
+    """The atomic steps of one build, as (label, function) pairs.
+
+    ``broken`` injects a deliberate modelling fault, used by the self-test to
+    show that this checker rejects a model that does not hold the invariants.
+    """
+    return _build_phase_steps(name, scenario) + _publication_steps(
+        name, scenario, broken=broken
+    )
 
 
 def clean_steps(*, broken: str = "") -> list[Step]:
@@ -735,6 +845,85 @@ def clean_steps(*, broken: str = "") -> list[Step]:
         state.cleaned = True
 
     return [("clean:remove", wait_and_remove)]
+
+
+def _unwind_aborted_build(
+    state: ModelState, who: str, pending: dict[str, list[Step]], *, broken: str
+) -> None:
+    """Abort unwinds: locks released, staging and this invocation's
+    container and image dropped. Recovery data, if this build left any,
+    deliberately survives."""
+    for remaining_label, _ in pending[who]:
+        if remaining_label.endswith("release_publish"):
+            if state.publish_lock_held:
+                state.in_critical -= 1
+            state.publish_lock_held = False
+        if remaining_label.endswith("release_activity"):
+            state.activity_holders -= 1
+    if broken != "leak_staging":
+        state.staging.pop(who, None)
+    if broken != "leak_container":
+        state.containers.discard(who)
+        state.images.discard(who)
+    state.publishing_fallback = False
+    pending[who] = []
+
+
+def _step_violations(label: str, state: ModelState, ever_published: bool) -> list[str]:
+    """I1, I2 and mutual exclusion of the publication lock, after one step."""
+    found: list[str] = []
+
+    # I1: the output path may be absent only before anything has ever been
+    # published, inside a fallback publication's documented window, after
+    # clean removed it, or when a failed rollback has left the previous
+    # generation as recovery data instead.
+    absence_allowed = (
+        not ever_published
+        or state.publishing_fallback
+        or state.cleaned
+        or bool(state.recovery)
+    )
+    if state.published is None and not absence_allowed:
+        found.append(f"output vanished outside a fallback window at {label}")
+    # I2: clean only ever removes with no activity lock held.
+    if label == "clean:remove" and state.activity_holders != 0:
+        found.append("clean removed state while an activity lock was held")
+    # The publication lock is mutually exclusive.
+    if state.in_critical > 1:
+        found.append("two builds inside the publication critical section")
+    return found
+
+
+def _drain_pending(
+    participants: dict[str, list[Step]], attempt: Callable[[str], bool]
+) -> None:
+    """Round-robin until nobody advances; contention can consume turns
+    without progress, so this drains what a fixed order left unfinished.
+    A pass that advances nobody means a real deadlock."""
+    while True:
+        advanced = False
+        for who in list(participants):
+            if attempt(who):
+                advanced = True
+        if not advanced:
+            break
+
+
+def _final_state_violations(state: ModelState) -> list[str]:
+    """I4: nothing owned, and no lock, survives to the end of a schedule."""
+    found: list[str] = []
+    if state.staging:
+        found.append(f"staging survived: {sorted(state.staging)}")
+    if state.containers or state.images:
+        found.append(
+            f"containers or images survived: "
+            f"{sorted(state.containers)}/{sorted(state.images)}"
+        )
+    if state.publish_lock_held:
+        found.append("publication lock still held at the end")
+    if state.activity_holders != 0:
+        found.append(f"activity lock still held: {state.activity_holders}")
+    return found
 
 
 def run_schedule(
@@ -756,23 +945,7 @@ def run_schedule(
         try:
             step(state)
         except _BuildAborted:
-            # Abort unwinds: locks released, staging and this invocation's
-            # container and image dropped. Recovery data, if this build left
-            # any, deliberately survives.
-            for remaining_label, _ in pending[who]:
-                if remaining_label.endswith("release_publish"):
-                    if state.publish_lock_held:
-                        state.in_critical -= 1
-                    state.publish_lock_held = False
-                if remaining_label.endswith("release_activity"):
-                    state.activity_holders -= 1
-            if broken != "leak_staging":
-                state.staging.pop(who, None)
-            if broken != "leak_container":
-                state.containers.discard(who)
-                state.images.discard(who)
-            state.publishing_fallback = False
-            pending[who] = []
+            _unwind_aborted_build(state, who, pending, broken=broken)
             aborted.add(who)
             return True
         except (_LockContended, _CleanBlocked):
@@ -782,55 +955,19 @@ def run_schedule(
 
         if state.published is not None:
             ever_published = True
-
-        # I1: the output path may be absent only before anything has ever
-        # been published, inside a fallback publication's documented window,
-        # after clean removed it, or when a failed rollback has left the
-        # previous generation as recovery data instead.
-        absence_allowed = (
-            not ever_published
-            or state.publishing_fallback
-            or state.cleaned
-            or bool(state.recovery)
-        )
-        if state.published is None and not absence_allowed:
-            violations.append(f"output vanished outside a fallback window at {label}")
-        # I2: clean only ever removes with no activity lock held.
-        if label == "clean:remove" and state.activity_holders != 0:
-            violations.append("clean removed state while an activity lock was held")
-        # The publication lock is mutually exclusive.
-        if state.in_critical > 1:
-            violations.append("two builds inside the publication critical section")
+        violations.extend(_step_violations(label, state, ever_published))
         return True
 
     for who in order:
         attempt(who)
 
-    # The sampled order fixes the interleaving; contention can consume turns
-    # without progress, so drain what is left round-robin until everyone has
-    # finished. A pass that advances nobody means a real deadlock.
-    while True:
-        advanced = False
-        for who in list(participants):
-            if attempt(who):
-                advanced = True
-        if not advanced:
-            break
+    # The sampled order fixes the interleaving; the drain below finishes
+    # whatever it left incomplete.
+    _drain_pending(participants, attempt)
     if any(pending[who] for who in participants if who not in aborted):
         violations.append("participants could not finish: deadlock")
 
-    # I4: nothing owned survives an abort.
-    if state.staging:
-        violations.append(f"staging survived: {sorted(state.staging)}")
-    if state.containers or state.images:
-        violations.append(
-            f"containers or images survived: "
-            f"{sorted(state.containers)}/{sorted(state.images)}"
-        )
-    if state.publish_lock_held:
-        violations.append("publication lock still held at the end")
-    if state.activity_holders != 0:
-        violations.append(f"activity lock still held: {state.activity_holders}")
+    violations.extend(_final_state_violations(state))
     return violations
 
 
