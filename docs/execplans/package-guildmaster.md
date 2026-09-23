@@ -272,6 +272,14 @@ fresh-guest CUSE acceptance plan.
 
 ## Decision log
 
+- Decision: CodeRabbit's pre-merge Observability warning, asking for a
+  metrics interface in the daemon, is declined for this package. It would
+  need a second downstream patch reading upstream's token-accounting state,
+  which the brief's "smallest patch" requirement and this plan's patch
+  tolerance rule out. The user chose, on 2026-09-23, to document the
+  existing observability (journal and unit state) and record metrics as a
+  proposal for upstream or `dev-env-rocky` instead.
+  Date/Author: 2026-09-23, user.
 - Decision: the repository's packaging is placed under the ISC licence, the
   same as upstream, with the owner as copyright holder. The baseline
   repository carries no licence file. This is the agent's choice on the
@@ -376,15 +384,48 @@ consuming RFC (`leynos/dev-env-rocky`, branch `concurrent-build-limits`,
 `docs/rfc-concurrent-build-limits.md`, PR 224). Traced items:
 
 ```plaintext
-REQ-RPM      spec, SRPM rebuild, manifest  -> EP-M2 -> tests/package, srpm-rebuild
-REQ-CAP      --tokens N patch, sysconfig   -> EP-M2 -> tests/capacity, tests/cuse
-REQ-BUILD    locking and publication       -> EP-M3 -> make unit
-REQ-SYSTEMD  unit, accounts, no activation -> EP-M4 -> tests/unit-file, lifecycle
-REQ-CONT     rootless systemd fixtures     -> EP-M4 -> make test
-REQ-CUSE     fresh-guest acceptance        -> EP-M5 -> make test-cuse
-REQ-DOCS     README, guides, ADR           -> EP-M6 -> make lint
-REQ-CI       pinned least-privilege CI     -> EP-M7 -> hosted workflow runs
-REQ-PUBLISH  verified public release       -> EP-M8 -> post-publication guest run
+REQ-RPM      spec, SRPM rebuild, manifest
+             -> EP-M2, EP-M3
+             -> tests/container/install, tests/container/versioning,
+                tests/container/rpmlint, scripts/tests/test-build-rpm.sh
+                (package-set validation, manifest), scripts/build-rpm.sh
+                phase C (clean SRPM rebuild in every build)
+REQ-CAP      --tokens N patch, sysconfig
+             -> EP-M2
+             -> packaging/check-tokens-option.sh (%check),
+                tests/container/capacity, tests/cuse/capacity,
+                tests/cuse/activation, tests/cuse/accounting,
+                tests/cuse/service-lifecycle (invalid value)
+REQ-BUILD    locking and publication
+             -> EP-M3
+             -> scripts/tests/test-build-rpm.sh, scripts/tests/model_check.py
+REQ-SYSTEMD  unit, accounts, no activation, upgrade, removal
+             -> EP-M4, EP-M5
+             -> tests/container/install, tests/container/unit-file,
+                tests/container/no-cuse, tests/container/upgrade,
+                tests/container/removal, tests/cuse/activation,
+                tests/cuse/permissions, tests/cuse/hardening,
+                tests/cuse/service-lifecycle, tests/cuse/upgrade-running,
+                tests/cuse/reboot, tests/cuse/removal
+REQ-CONT     rootless systemd fixtures
+             -> EP-M4
+             -> scripts/tests/test-systemd-fixture.sh, make test
+REQ-CUSE     fresh-guest acceptance
+             -> EP-M5
+             -> scripts/tests/test-cuse-scripts.sh,
+                scripts/tests/test-virt-preflight.sh, make test-cuse
+REQ-DOCS     README, guides, ADR
+             -> EP-M6
+             -> make lint (markdownlint), docs/adr-001-system-service-and-device-policy.md
+REQ-CI       pinned least-privilege CI
+             -> EP-M7
+             -> make lint (actionlint), hosted workflow runs on PR #1
+REQ-PUBLISH  verified public release
+             -> EP-M7, EP-M8
+             -> scripts/tests/test-release-scripts.sh,
+                scripts/tests/test-verify-release.sh,
+                scripts/tests/test-upgrade-fixture.sh,
+                post-publication guest run
 ```
 
 ## Verification plan
@@ -456,36 +497,45 @@ lint gates, CI, review and release.
   `tmt … provision --how virtual --connection session`; CUSE facts recorded
   in this plan. Recovery: `tmt clean` for the named run identifiers only.
 - EP-M2: `guildmaster.spec`, `patches/0001-add-tokens-option.patch`,
-  `packaging/` (unit, sysusers, udev rules, modules-load, sysconfig,
-  tmpfiles if needed), licence files. Acceptance: `make rpm-fedora-43` and
-  `make rpm-rocky-10` produce the four-package set; `%check` runs the
-  option tests; SRPM rebuild succeeds in a clean container with networking
-  disabled (`--network=none`) after dependencies are installed.
+  `packaging/` (unit, sysusers, udev rules, sysconfig, manual pages, option
+  test, rpmlint configuration), `LICENSE`. No `modules-load.d` or tmpfiles
+  file is shipped; see the Decision log. Acceptance: `make rpm-fedora-43` and
+  `make rpm-rocky-10` produce the four-package set; `%check` runs the option
+  tests; SRPM rebuild succeeds in a clean container with networking disabled
+  (`--network=none`) after dependencies are installed.
 - EP-M3: `scripts/build-rpm.sh`, `scripts/clean.sh`, adapted unit suite and
   model check. Acceptance: `make unit` passes offline; each new negative
   control observed failing first.
 - EP-M4: `fixtures/systemd/Containerfile`, `scripts/podman-preflight.sh`,
-  `scripts/systemd-fixture.sh`, `plans/container.fmf`, tests under
-  `tests/package`, `tests/unit-file`, `tests/lifecycle`, `tests/no-cuse`,
-  `tests/srpm-rebuild`. Acceptance: `make test` passes on both targets; the
+  `scripts/systemd-fixture.sh`, `scripts/build-upgrade-fixture.sh`,
+  `plans/container.fmf`, and tests under `tests/container/` (`install`,
+  `unit-file`, `capacity`, `no-cuse`, `rpmlint`, `versioning`, `upgrade`,
+  `removal`). The clean SRPM rebuild runs in every build (EP-M3), not as a
+  separate test. Acceptance: `make test` passes on both targets; the
   production unit's missing-device failure is asserted via `systemctl
   show`, never reported as successful operation.
 - EP-M5: `scripts/cuse-image.sh` (pinned QCOW2 cache with checksum
   verification and atomic publication), `scripts/virt-preflight.sh`,
-  `plans/cuse.fmf`, tests under `tests/cuse/*` with a C or Python
-  token-client helper. Acceptance: `make test-cuse` passes from fresh
+  `scripts/cuse-guest.sh`, `fixtures/cuse/images.tsv`, `plans/cuse.fmf`,
+  and tests under `tests/cuse/` (`preflight`, `capacity`, `activation`,
+  `permissions`, `accounting` with the Python client `gmclient.py`,
+  `gm-run`, `hardening`, `service-lifecycle`, `upgrade-running`, `reboot`,
+  `removal`), which also run the shared `tests/container/install`,
+  `unit-file` and `versioning` tests. Acceptance: `make test-cuse` passes from fresh
   overlays on both distributions, including the reboot/module-autoload
   scenario and upgrade/drain/removal.
 - EP-M6: `README.md`, `docs/users-guide.md`, `docs/developers-guide.md`,
   `docs/adr-001-system-service-and-device-policy.md`, `CHANGELOG.md`,
   `AGENTS.md`; `make lint` covering shellcheck, shfmt, actionlint, `tmt
   lint`, markdownlint, nixie, ruff/ty for Python, rpmlint where available.
-- EP-M7: `.github/workflows/ci.yml`, `acceptance.yml`, `release.yml`;
-  draft PR via the `pr-creation` skill; review workflow; fixes.
-- EP-M8: tag `v0.1-1` style release (exact tag scheme fixed in EP-M2 and
-  validated against the spec by the release workflow), wait for the
-  workflow, download assets, verify, and rerun the essential guest tests
-  against the downloaded RPMs.
+- EP-M7: `.github/workflows/ci.yml`, `acceptance.yml`, `release.yml`,
+  `.github/actions/setup-*-tier/`, `scripts/assemble-release.sh`,
+  `scripts/release-evidence.sh`, `scripts/verify-release.sh` and their
+  offline suites; PR #1; review workflow; fixes.
+- EP-M8: tag `v0.1-20251202git463382b-1` (the RPM version with a hyphen for
+  the caret, validated against the spec by `scripts/assemble-release.sh`),
+  wait for the workflow, download assets, verify, and rerun the essential
+  guest tests against the downloaded RPMs.
 
 Compatibility decision for every milestone: none. Nothing is released yet.
 

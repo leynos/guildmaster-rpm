@@ -139,6 +139,12 @@ jobserver are not constrained at all.
 
 ## Consequences
 
+- There is no metrics interface. Gauges for free, held and awaited tokens
+  would need a second downstream patch that reads upstream's accounting
+  state, which Decision 4 deliberately avoids. Observability is the daemon's
+  own journal output and systemd's unit state; a metrics interface is a
+  proposal for upstream or for the admission supervisor in
+  `dev-env-rocky`, not for this package.
 - The package changes the group and mode of `/dev/cuse` while it is
   installed. Any other CUSE user on the host must run as root or join
   `guildmaster`; this is documented.

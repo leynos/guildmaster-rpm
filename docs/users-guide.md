@@ -193,6 +193,15 @@ each connection, disconnection and final token balance.
 If the daemon crashes, systemd restarts it after two seconds. Clients of the
 crashed daemon see errors on their handles.
 
+There is no metrics interface. The journal and `systemctl show` are the only
+observability the package provides: the configured capacity at start-up,
+each connection and disconnection with the process identifier, each final
+token balance returned to the pool, each ignored unmatched return, and the
+unit's state and restart count. How many tokens are free or held, and how
+many clients are waiting, is not reported. A non-blocking read of
+`/dev/guild` by a member of `guild` shows whether a token is free at that
+moment, but it takes the token, which must then be written back.
+
 ## Upgrades
 
 Install the newer package the same way, with `dnf install` or
