@@ -18,9 +18,13 @@ import tempfile
 from pathlib import Path
 
 from . import __doc__ as _PACKAGE_DOC
-from .abstract import REACHED, abstract_cases, self_test
 from .common import DEFAULT_SEED, CheckFailure
-from .executed import Sandbox, check_executed_case, executed_cases, write_stubs
+from .executed_cases import executed_cases
+from .executed_checks import check_executed_case
+from .model import REACHED
+from .sandbox import Sandbox, write_stubs
+from .schedule import abstract_cases
+from .selftest import self_test
 
 # States the non-vacuity guard requires the abstract sweep to have reached.
 _REQUIRED_REACHED = {
