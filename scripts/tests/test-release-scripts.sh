@@ -520,20 +520,47 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
     mutant_dir=${scratch}/mutants
     mkdir -p "${mutant_dir}"
 
+    # make_mutant <source> <fixed-string> <output>: copy <source> without the
+    # one two-line check whose first line contains <fixed-string> and ends
+    # in "||" (the second line being its "die" or "problem" call). The
+    # patterns are single-quoted on purpose: they are literal source text.
+    # Fails loudly when the
+    # pattern matches no line, more than one line, or a line that is not
+    # such a check, so a later edit to the scripts cannot silently turn a
+    # mutant into a copy of the original.
+    make_mutant() {
+        local source=$1 pattern=$2 output=$3 matches line
+        matches=$(grep -nF -- "${pattern}" "${source}" | cut -d: -f1)
+        if [[ $(grep -c . <<<"${matches}") -ne 1 ]]; then
+            echo "FAIL: mutant pattern '${pattern}' matches $(grep -c . <<<"${matches}") lines of ${source}" >&2
+            exit 1
+        fi
+        line=${matches}
+        if ! sed -n "${line}p" "${source}" | grep -q '||[[:space:]]*$' ||
+            ! sed -n "$((line + 1))p" "${source}" | grep -Eq '^[[:space:]]*(die|problem) '; then
+            echo "FAIL: mutant pattern '${pattern}' in ${source} is not a two-line check" >&2
+            exit 1
+        fi
+        sed "${line},$((line + 1))d" "${source}" >"${output}"
+        chmod +x "${output}"
+    }
+
+    # shellcheck disable=SC2016
     # Mutant 1: assemble-release.sh no longer checks a package's bytes
     # against its manifest checksum.
-    sed '115,116d' "${repo_root}/scripts/assemble-release.sh" >"${mutant_dir}/no-checksum.sh"
-    chmod +x "${mutant_dir}/no-checksum.sh"
+    make_mutant "${repo_root}/scripts/assemble-release.sh" \
+        '"${SHA256SUM}" -c --status - ||' "${mutant_dir}/no-checksum.sh"
 
     # Mutant 2: assemble-release.sh no longer checks the tag against the
     # spec.
-    sed '79,80d' "${repo_root}/scripts/assemble-release.sh" >"${mutant_dir}/no-tag-check.sh"
-    chmod +x "${mutant_dir}/no-tag-check.sh"
+    # shellcheck disable=SC2016
+    make_mutant "${repo_root}/scripts/assemble-release.sh" \
+        '[[ ${tag} == "${expected_tag}" ]] ||' "${mutant_dir}/no-tag-check.sh"
 
     # Mutant 3: release-evidence.sh no longer rejects evidence from a dirty
     # working tree.
-    sed '62,63d' "${repo_root}/scripts/release-evidence.sh" >"${mutant_dir}/ignore-dirty.sh"
-    chmod +x "${mutant_dir}/ignore-dirty.sh"
+    make_mutant "${repo_root}/scripts/release-evidence.sh" \
+        'source_tree_dirty) == no ]] ||' "${mutant_dir}/ignore-dirty.sh"
 
     mutant_status=0
 
