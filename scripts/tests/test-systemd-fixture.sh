@@ -57,6 +57,42 @@ assert_lacks() {
     else ok "$3"; fi
 }
 
+# --- FIFO handshake (bounded, never a sleep) ----------------------------------
+
+: "${FIFO_TIMEOUT:=60}"
+
+# fifo_read_kill <pid>: terminate a stuck handshake's background job with
+# TERM, then KILL if it is still alive after a short grace period.
+fifo_read_kill() {
+    local target=$1
+    kill -TERM "${target}" 2>/dev/null || true
+    sleep 0.2
+    kill -0 "${target}" 2>/dev/null && kill -KILL "${target}" 2>/dev/null
+    return 0
+}
+
+# fifo_read <fifo> <what> [kill targets...]: read one line from a FIFO
+# handshake with a bounded wait. On timeout, records a failure naming
+# <what>, terminates every given kill target (see fifo_read_kill) and
+# returns non-zero.
+fifo_read() {
+    local fifo=$1 what=$2
+    shift 2
+    local fd
+    exec {fd}<>"${fifo}"
+    if read -r -t "${FIFO_TIMEOUT}" -u "${fd}" _; then
+        exec {fd}<&-
+        return 0
+    fi
+    exec {fd}<&-
+    not_ok "timed out after ${FIFO_TIMEOUT}s waiting for ${what}"
+    local target
+    for target in "$@"; do
+        fifo_read_kill "${target}"
+    done
+    return 1
+}
+
 # --- stubs -----------------------------------------------------------------
 
 stub_dir=${scratch}/stubs
@@ -303,6 +339,29 @@ assert_contains "${SCENARIO}/out" 'event=diagnostics_captured' 'diagnostics are 
 assert_only_own_container_removed
 if [[ ! -e ${SCENARIO}/cache/evidence/container-fedora-43.txt ]]; then ok 'no evidence is written for a failed run'; else not_ok 'evidence written for a failed run'; fi
 
+new_scenario upgrade_rpms_recorded
+mkdir -p "${SCENARIO}/upgrade"
+echo 'upgrade rpm bytes' >"${SCENARIO}/upgrade/guildmaster-0.1^1-2.fc43.upgradetest.x86_64.rpm"
+upgrade_sha=$(sha256sum <"${SCENARIO}/upgrade/guildmaster-0.1^1-2.fc43.upgradetest.x86_64.rpm" | cut -d' ' -f1)
+run_fixture UPGRADE_RPM_DIR="${SCENARIO}/upgrade"
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/out" 'event=upgrade_rpm_selected' 'the upgrade package is logged'
+assert_contains "${SCENARIO}/out" 'file=guildmaster-0.1^1-2.fc43.upgradetest.x86_64.rpm' \
+    'the upgrade log names the upgrade package'
+assert_contains "${SCENARIO}/out" "sha256=${upgrade_sha}" 'the upgrade log carries its real checksum'
+assert_contains "${SCENARIO}/cache/evidence/container-fedora-43.txt" 'upgrade_rpms:' \
+    'evidence records an upgrade_rpms block'
+assert_contains "${SCENARIO}/cache/evidence/container-fedora-43.txt" \
+    "guildmaster-0.1^1-2.fc43.upgradetest.x86_64.rpm	${upgrade_sha}" \
+    'evidence records the upgrade package with its real checksum'
+
+new_scenario upgrade_dir_empty_refused
+mkdir -p "${SCENARIO}/upgrade"
+run_fixture UPGRADE_RPM_DIR="${SCENARIO}/upgrade"
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'holds no RPMs' 'an empty upgrade directory is refused'
+assert_lacks "${SCENARIO}/podman.log" 'run ' 'no container is started when the upgrade directory is empty'
+
 new_scenario container_start_fails
 echo 125 >"${SCENARIO}/run_status"
 run_fixture
@@ -319,14 +378,17 @@ setsid env PODMAN="${stub_dir}/podman" TMT="${stub_dir}/tmt" PREFLIGHT=true \
     "${fixture_script}" fedora-43 "${pinned}" "${SCENARIO}/rpms" \
     >"${SCENARIO}/out" 2>&1 &
 fixture_pid=$!
-read -r _ <"${SCENARIO}/tmt.started"
-kill -TERM -- "-${fixture_pid}"
-status=0
-wait "${fixture_pid}" || status=$?
+if fifo_read "${SCENARIO}/tmt.started" 'tmt to announce it started' "-${fixture_pid}"; then
+    kill -TERM -- "-${fixture_pid}"
+    status=0
+    wait "${fixture_pid}" || status=$?
+    assert_status "${status}" 143
+    assert_only_own_container_removed
+    assert_contains "${SCENARIO}/out" 'event=workdir_retained' 'the work directory is kept after cancellation'
+else
+    wait "${fixture_pid}" 2>/dev/null || true
+fi
 exec {never_fd}>&-
-assert_status "${status}" 143
-assert_only_own_container_removed
-assert_contains "${SCENARIO}/out" 'event=workdir_retained' 'the work directory is kept after cancellation'
 
 # --- podman-preflight.sh -----------------------------------------------------
 

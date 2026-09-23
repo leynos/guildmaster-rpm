@@ -176,9 +176,9 @@ acquire_activity_lock() {
 #
 # Copies every file listed in rpm_dir/manifest.tsv into work_dir/rpms,
 # verifying each against its manifest checksum, and copies the manifest
-# alongside them. Also copies the upgrade fixture into work_dir/upgrade
-# when UPGRADE_RPM_DIR is set. Calls die, which exits the script, on any
-# missing file or checksum mismatch.
+# alongside them. Also stages the upgrade fixture, through
+# stage_upgrade_rpms, when UPGRADE_RPM_DIR is set. Calls die, which exits the
+# script, on any missing file or checksum mismatch.
 select_rpms() {
     local manifest=${rpm_dir}/manifest.tsv
     [[ -f ${manifest} ]] ||
@@ -198,9 +198,37 @@ select_rpms() {
     cp "${manifest}" "${work_dir}/rpms/manifest.tsv"
 
     if [[ -n ${UPGRADE_RPM_DIR} ]]; then
-        mkdir -p "${work_dir}/upgrade"
-        cp "${UPGRADE_RPM_DIR}"/*.rpm "${work_dir}/upgrade/"
+        stage_upgrade_rpms
     fi
+}
+
+# stage_upgrade_rpms: copy the upgrade fixture into work_dir/upgrade.
+#
+# The same rules as scripts/cuse-guest.sh: a relative UPGRADE_RPM_DIR is
+# resolved against the repository, an empty directory is refused, each copy is
+# checked against the file it was copied from, and its checksum is logged and
+# written to work_dir/upgrade.sha256 for the evidence. Calls die, which exits
+# the script, on any failure.
+stage_upgrade_rpms() {
+    local source_dir=${UPGRADE_RPM_DIR} package staged sha256
+    [[ ${source_dir} == /* ]] || source_dir=${repo_root}/${source_dir}
+    local -a packages=()
+    for package in "${source_dir}"/*.rpm; do
+        [[ -f ${package} ]] && packages+=("${package}")
+    done
+    [[ ${#packages[@]} -gt 0 ]] ||
+        die "UPGRADE_RPM_DIR ${source_dir} holds no RPMs; run make upgrade-fixture-${target}"
+    mkdir -p "${work_dir}/upgrade"
+    : >"${work_dir}/upgrade.sha256"
+    for package in "${packages[@]}"; do
+        staged=${work_dir}/upgrade/$(basename "${package}")
+        cp "${package}" "${staged}"
+        sha256=$("${SHA256SUM}" <"${staged}" | cut -d' ' -f1)
+        [[ ${sha256} == "$("${SHA256SUM}" <"${package}" | cut -d' ' -f1)" ]] ||
+            die "the staged copy of $(basename "${package}") differs from its source"
+        printf '%s\t%s\n' "$(basename "${package}")" "${sha256}" >>"${work_dir}/upgrade.sha256"
+        log_event upgrade_rpm_selected "file=$(basename "${package}")" "sha256=${sha256}"
+    done
 }
 
 # Build the fixture image unless one with the same inputs already exists. The
@@ -388,6 +416,10 @@ write_evidence() {
         echo "tmt_version: $("${TMT}" --version 2>&1 | head -n 1)"
         echo "rpms:"
         cut -f1,7 "${work_dir}/rpms/manifest.tsv" | sed 's/^/  /'
+        if [[ -s ${work_dir}/upgrade.sha256 ]]; then
+            echo "upgrade_rpms:"
+            sed 's/^/  /' "${work_dir}/upgrade.sha256"
+        fi
     } >"${evidence}"
     log_event evidence_written "path=${evidence}"
 }
