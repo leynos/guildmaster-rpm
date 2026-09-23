@@ -1,4 +1,4 @@
-# Developer's guide
+# Developers' guide
 
 This guide covers the packaging, build, test and publication machinery
 for `guildmaster-rpm`. It is written for people changing the packaging
@@ -164,10 +164,11 @@ needed because the caret alone is enough to establish this ordering
 against every version upstream is expected to publish next.
 
 `tests/container/versioning/test.sh` demonstrates the ordering with
-RPM's own comparison function, `rpm --eval "%{lua: print(rpm.vercmp
-(...))}"`, rather than a lexical sort (a lexical sort would place
-`0.1^20260301gitabcdef0` before `0.1^20251202git463382b`, which is
-wrong). The concrete comparisons it asserts:
+RPM's own comparison function,
+`rpm --eval "%{lua: print(rpm.vercmp(...))}"`, rather than a lexical
+sort. A lexical sort gets it wrong: because `.` sorts before `^`, it
+would place `0.1.1` before `0.1^20251202git463382b`, although `0.1.1`
+is the newer version. The concrete comparisons it asserts:
 
 ```plaintext
 0.1^20251202git463382b  vs  0.1^20251202git463382b   -> equal (0)

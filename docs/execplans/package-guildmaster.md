@@ -138,11 +138,14 @@ fresh-guest CUSE acceptance plan.
 - [x] (2026-09-23 15:00Z) CodeRabbit review: 13 findings, all actioned;
   `make release-check` passed again on a clean tree at `be97be6`, now with
   fourteen guest tests per target.
-- [ ] EP-M7 CI, draft PR and review (completed: workflows, release-script
-  tests, draft PR #1, first hosted CI run 35648908683 green on
-  `ubuntu-24.04` with the rootless systemd preflight passing on Podman
-  4.9.3; remaining: CodeRabbit review and fixes, hosted CUSE tier, which
-  can only run once `acceptance.yml` is on `main`).
+- [ ] EP-M7 CI, PR and review (completed: workflows, offline suites for
+  every script and for the workflows themselves, PR #1, hosted CI green on
+  every pushed head since run 35648908683 with the rootless systemd
+  preflight passing on `ubuntu-24.04` and Podman 4.9.3, and three rounds
+  of CodeRabbit and Codex review, each finding actioned or, for the
+  metrics interface, declined by the maintainer; remaining: merge, and the
+  hosted CUSE tier, which can only run once `acceptance.yml` is on
+  `main`).
 - [ ] EP-M8 release and post-publication verification.
 
 ## Surprises & discoveries
@@ -312,12 +315,15 @@ fresh-guest CUSE acceptance plan.
   or `0.2`; ordering is demonstrated with `rpmdev-vercmp`/`rpm --eval
   '%{lua:…rpm.vercmp…}'` in a test.
   Date/Author: 2026-09-21, Claude.
-- Decision: capacity is configured through `/etc/sysconfig/guildmaster`
+- Decision (superseded in part by the `GUILDMASTER_OPTS` refinement
+  above): capacity is configured through `/etc/sysconfig/guildmaster`
   (`%config(noreplace)`), read by the vendor unit as
-  `EnvironmentFile=-/etc/sysconfig/guildmaster`, supplying
-  `GUILDMASTER_TOKENS`. The shipped default leaves it unset, preserving
-  upstream's processors-plus-one capacity; Ansible writes `2`. Systemd
-  drop-ins remain available but are not the documented interface.
+  `EnvironmentFile=-/etc/sysconfig/guildmaster`. As implemented, the file
+  supplies `GUILDMASTER_OPTS`, which ships empty to preserve upstream's
+  processors-plus-one capacity; Ansible writes
+  `GUILDMASTER_OPTS="--tokens=2"`. The originally planned
+  `GUILDMASTER_TOKENS` variable was not implemented. Systemd drop-ins
+  remain available but are not the documented interface.
   Date/Author: 2026-09-21, Claude.
 - Decision: two groups. `guildmaster` (the daemon's account and group)
   gains access to `/dev/cuse`; `guild` (clients) gains access to
