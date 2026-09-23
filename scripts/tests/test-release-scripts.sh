@@ -156,8 +156,11 @@ new_assemble_scenario assemble_accept
 build_valid_targets
 mkdir -p "${SCENARIO}/evidence"
 echo 'container evidence body' >"${SCENARIO}/evidence/a.txt"
+echo 'aggregate record that repeats every tier' >"${SCENARIO}/evidence/release-candidate.txt"
 run_assemble EVIDENCE_DIR="${SCENARIO}/evidence"
 assert_status "${status}" 0
+assert_lacks "${SCENARIO}/assets/release-notes.md" 'aggregate record that repeats every tier' \
+    'release-candidate.txt is not embedded, so no evidence appears twice'
 if [[ $(find "${SCENARIO}/assets" -name '*.rpm' | wc -l) -eq 8 ]]; then
     ok 'exactly 8 RPMs are written'
 else not_ok "wrong RPM count: $(find "${SCENARIO}/assets" -name '*.rpm' | wc -l)"; fi
@@ -586,18 +589,34 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
 
     # check_mutant <label> [extra env assignments...]: rerun this suite
     # against a mutant script and record whether it failed as expected.
+    #
+    # Invoked via "bash", not "$0" alone: a mutant copy is chmod +x by
+    # make_mutant, but running it bare would still let a harness crash or a
+    # non-executable $0 (exit 126) masquerade as "mutant caught" purely from
+    # a nonzero exit. The rerun's own summary line is parsed instead, and is
+    # only accepted as a genuine catch when it reports at least one passed
+    # and at least one failed assertion; a missing summary line (the rerun
+    # never got that far) is itself a mutant-check failure, not a pass.
     check_mutant() {
         local label=$1
         shift
         local out=${mutant_dir}/${label}.out
         local rc=0
-        env MUTATION_CHECK=1 "$@" "$0" >"${out}" 2>&1 || rc=$?
-        local summary
+        env MUTATION_CHECK=1 "$@" bash "$0" >"${out}" 2>&1 || rc=$?
+        local summary mpassed mfailed
         summary=$(grep '^release script tests:' "${out}" | tail -n 1)
-        if [[ ${rc} -ne 0 ]]; then
-            echo "ok: mutant ${label}: suite failed as expected (${summary:-no summary line}), exit ${rc}"
+        if [[ ${summary} =~ ^release\ script\ tests:\ ([0-9]+)\ passed,\ ([0-9]+)\ failed$ ]]; then
+            mpassed=${BASH_REMATCH[1]}
+            mfailed=${BASH_REMATCH[2]}
         else
-            echo "FAIL: mutant ${label}: suite still passed (${summary:-no summary line})" >&2
+            echo "FAIL: mutant ${label}: no summary line was produced (exit ${rc})" >&2
+            mutant_status=1
+            return
+        fi
+        if [[ ${mfailed} -ge 1 && ${mpassed} -ge 1 ]]; then
+            echo "ok: mutant ${label}: suite caught it (${summary}), exit ${rc}"
+        else
+            echo "FAIL: mutant ${label}: suite reported no failed assertions (${summary}), exit ${rc}" >&2
             mutant_status=1
         fi
     }

@@ -184,6 +184,9 @@ done
         local_file=
         for local_file in "${EVIDENCE_DIR}"/*.txt; do
             [[ -f ${local_file} ]] || continue
+            # release-candidate.txt already repeats every tier's evidence in
+            # full; embedding it too would print each file twice.
+            [[ $(basename "${local_file}") != release-candidate.txt ]] || continue
             echo
             echo "### $(basename "${local_file}")"
             echo
