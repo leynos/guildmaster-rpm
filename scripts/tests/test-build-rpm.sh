@@ -84,6 +84,51 @@ assert_not_contains() {
     return 0
 }
 
+# --- FIFO handshakes ---------------------------------------------------------
+
+# Default bound, in seconds, on a single FIFO handshake read. A stub or
+# background build that never turns up must fail its own case rather than
+# hang the whole suite; override with FIFO_TIMEOUT in a slower environment.
+: "${FIFO_TIMEOUT:=60}"
+
+# Terminate a stuck handshake's background job: TERM, then KILL if it is
+# still alive after a short grace period. Pass a bare pid to signal one
+# process, or "-<pid>" to signal a whole process group — only meaningful for
+# a job the suite started with setsid, which makes the pid its group id too.
+fifo_read_kill() {
+    local target=$1
+    kill -TERM "${target}" 2>/dev/null || true
+    sleep 0.2
+    kill -0 "${target}" 2>/dev/null && kill -KILL "${target}" 2>/dev/null
+    return 0
+}
+
+# Read one line from a FIFO handshake with a bounded wait, in place of a
+# plain blocking read. The FIFO is opened read-write on its own descriptor
+# before the read, so opening it can never itself block on a writer turning
+# up; only the read is bounded. On timeout this records a test failure
+# naming the handshake, terminates every given kill target (see
+# fifo_read_kill) and returns non-zero so the caller can bail out of the
+# case instead of hanging it. The timeout is a hang guard only — it is never
+# part of the deterministic barrier semantics the handshakes provide.
+fifo_read() {
+    local fifo=$1 what=$2
+    shift 2
+    local fd
+    exec {fd}<>"${fifo}"
+    if read -r -t "${FIFO_TIMEOUT}" -u "${fd}" _; then
+        exec {fd}<&-
+        return 0
+    fi
+    exec {fd}<&-
+    fail "timed out after ${FIFO_TIMEOUT}s waiting for ${what}"
+    local target
+    for target in "$@"; do
+        fifo_read_kill "${target}"
+    done
+    return 1
+}
+
 # --- fixtures ---------------------------------------------------------------
 
 # Stand-in for the upstream archive. Its content is irrelevant; only its
@@ -1096,7 +1141,9 @@ publication_case() {
         PODMAN_STUB_WAIT_FIFO="${waiting}"
     local pid=${bg_pid}
 
-    read -r _ <"${started}"
+    fifo_read "${started}" \
+        "second build to announce it reached phase B (${exchange})" "-${pid}" ||
+        return 1
     # The second build is now blocked with a half-written staging directory.
     assert_published_set "${c}" previous \
         "while a second build is mid-flight (${exchange})"
@@ -1122,75 +1169,82 @@ publication_case "${workdir}/publish-fallback" never
 # one complete generation at the end. Which of the two wins the lock is
 # deliberately not asserted — that is the point of the lock, not a property
 # of it.
+concurrent_publish_case() {
+    local c="${workdir}/concurrent-publish"
+    prepare_case "${c}"
+    local announce_a="${c}/announce-a.fifo" wait_a="${c}/wait-a.fifo"
+    local announce_b="${c}/announce-b.fifo" wait_b="${c}/wait-b.fifo"
+    mkfifo "${announce_a}" "${wait_a}" "${announce_b}" "${wait_b}"
+
+    local rc
+    rc=$(run_build "${c}" PODMAN_STUB_TAG=previous)
+    assert_eq 0 "${rc}" 'exit status priming the previous set'
+
+    prepare_case "${c}"
+    start_build_bg "${c}" "${c}/a.out" \
+        PODMAN_STUB_TAG=build-a \
+        PREPUBLISH_ANNOUNCE_FIFO="${announce_a}" \
+        PREPUBLISH_WAIT_FIFO="${wait_a}"
+    local pid_a=${bg_pid}
+    start_build_bg "${c}" "${c}/b.out" \
+        PODMAN_STUB_TAG=build-b \
+        PREPUBLISH_ANNOUNCE_FIFO="${announce_b}" \
+        PREPUBLISH_WAIT_FIFO="${wait_b}"
+    local pid_b=${bg_pid}
+
+    fifo_read "${announce_a}" 'build A to announce the pre-publication barrier' \
+        "-${pid_a}" "-${pid_b}" || return 1
+    fifo_read "${announce_b}" 'build B to announce the pre-publication barrier' \
+        "-${pid_a}" "-${pid_b}" || return 1
+
+    # Both builds now hold the activity lock with a complete, validated set
+    # staged and unpublished.
+    assert_published_set "${c}" previous 'while both builds wait to publish'
+    assert_eq 2 "$(stray_staging "${c}" | grep -c .)" \
+        'staging directories in flight'
+
+    # Take the publication lock from outside, so that releasing both builds
+    # cannot publish anything. This is what makes the next assertion a
+    # statement about the lock rather than about timing: neither build can
+    # get past publish_staging's flock while this holder owns it, however
+    # long they run.
+    local holder_ready="${c}/holder-ready.fifo"
+    local holder_release="${c}/holder-release.fifo"
+    mkfifo "${holder_ready}" "${holder_release}"
+    flock -x "${c}/cache/locks/publish-${target}.lock" \
+        -c "echo held >'${holder_ready}'; read -r _ <'${holder_release}'" &
+    local holder_pid=$!
+    fifo_read "${holder_ready}" 'external lock holder to take the publication lock' \
+        "${holder_pid}" "-${pid_a}" "-${pid_b}" || return 1
+
+    # Release both builds into the publication lock at once.
+    echo go >"${wait_a}" &
+    echo go >"${wait_b}" &
+
+    # Both are now past the barrier and blocked on the lock this test holds,
+    # so the published directory must still be exactly the previous
+    # generation, and neither build can have exited.
+    assert_published_set "${c}" previous 'while the publication lock is held'
+    kill -0 "${pid_a}" 2>/dev/null || fail 'build A exited without the publication lock'
+    kill -0 "${pid_b}" 2>/dev/null || fail 'build B exited without the publication lock'
+
+    echo go >"${holder_release}"
+    wait "${holder_pid}"
+    wait "${pid_a}" || fail "build A failed: $(cat "${c}/a.out")"
+    wait "${pid_b}" || fail "build B failed: $(cat "${c}/b.out")"
+
+    # Which build won the lock is deliberately not asserted; that it
+    # published alone, and whole, is.
+    published_is_one_complete_generation "${c}" build-a build-b ||
+        fail "final published set is not one complete generation: [$(published_set "${c}")]"
+    assert_eq '' "$(stray_staging "${c}")" 'staging directories after the race'
+    assert_eq '' "$(stray_temps "${c}")" 'temporary files after the race'
+    assert_no_stray_containers "${c}" 'after two concurrent builds'
+    assert_locks_free "${c}" 'after two concurrent builds'
+}
+
 start 'two concurrent builds never expose a partial or mixed generation'
-c="${workdir}/concurrent-publish"
-prepare_case "${c}"
-announce_a="${c}/announce-a.fifo"
-wait_a="${c}/wait-a.fifo"
-announce_b="${c}/announce-b.fifo"
-wait_b="${c}/wait-b.fifo"
-mkfifo "${announce_a}" "${wait_a}" "${announce_b}" "${wait_b}"
-
-rc=$(run_build "${c}" PODMAN_STUB_TAG=previous)
-assert_eq 0 "${rc}" 'exit status priming the previous set'
-
-prepare_case "${c}"
-start_build_bg "${c}" "${c}/a.out" \
-    PODMAN_STUB_TAG=build-a \
-    PREPUBLISH_ANNOUNCE_FIFO="${announce_a}" \
-    PREPUBLISH_WAIT_FIFO="${wait_a}"
-pid_a=${bg_pid}
-start_build_bg "${c}" "${c}/b.out" \
-    PODMAN_STUB_TAG=build-b \
-    PREPUBLISH_ANNOUNCE_FIFO="${announce_b}" \
-    PREPUBLISH_WAIT_FIFO="${wait_b}"
-pid_b=${bg_pid}
-
-read -r _ <"${announce_a}"
-read -r _ <"${announce_b}"
-
-# Both builds now hold the activity lock with a complete, validated set
-# staged and unpublished.
-assert_published_set "${c}" previous 'while both builds wait to publish'
-assert_eq 2 "$(stray_staging "${c}" | grep -c .)" \
-    'staging directories in flight'
-
-# Take the publication lock from outside, so that releasing both builds cannot
-# publish anything. This is what makes the next assertion a statement about
-# the lock rather than about timing: neither build can get past
-# publish_staging's flock while this holder owns it, however long they run.
-holder_ready="${c}/holder-ready.fifo"
-holder_release="${c}/holder-release.fifo"
-mkfifo "${holder_ready}" "${holder_release}"
-flock -x "${c}/cache/locks/publish-${target}.lock" \
-    -c "echo held >'${holder_ready}'; read -r _ <'${holder_release}'" &
-holder_pid=$!
-read -r _ <"${holder_ready}"
-
-# Release both builds into the publication lock at once.
-echo go >"${wait_a}" &
-echo go >"${wait_b}" &
-
-# Both are now past the barrier and blocked on the lock this test holds, so
-# the published directory must still be exactly the previous generation, and
-# neither build can have exited.
-assert_published_set "${c}" previous 'while the publication lock is held'
-kill -0 "${pid_a}" 2>/dev/null || fail 'build A exited without the publication lock'
-kill -0 "${pid_b}" 2>/dev/null || fail 'build B exited without the publication lock'
-
-echo go >"${holder_release}"
-wait "${holder_pid}"
-wait "${pid_a}" || fail "build A failed: $(cat "${c}/a.out")"
-wait "${pid_b}" || fail "build B failed: $(cat "${c}/b.out")"
-
-# Which build won the lock is deliberately not asserted; that it published
-# alone, and whole, is.
-published_is_one_complete_generation "${c}" build-a build-b ||
-    fail "final published set is not one complete generation: [$(published_set "${c}")]"
-assert_eq '' "$(stray_staging "${c}")" 'staging directories after the race'
-assert_eq '' "$(stray_temps "${c}")" 'temporary files after the race'
-assert_no_stray_containers "${c}" 'after two concurrent builds'
-assert_locks_free "${c}" 'after two concurrent builds'
+concurrent_publish_case
 
 # --- cases: fallback rollback -----------------------------------------------
 
@@ -1252,53 +1306,59 @@ assert_locks_free "${c}" 'after a failed rollback'
 
 # --- cases: clean ------------------------------------------------------------
 
-start 'clean waits for an in-flight build and keeps the lock directory'
-c="${workdir}/clean-race"
-prepare_case "${c}"
-started="${c}/started.fifo"
-waiting="${c}/wait.fifo"
-clean_ready="${c}/clean.fifo"
-mkfifo "${started}" "${waiting}" "${clean_ready}"
+clean_race_case() {
+    local c="${workdir}/clean-race"
+    prepare_case "${c}"
+    local started="${c}/started.fifo" waiting="${c}/wait.fifo"
+    local clean_ready="${c}/clean.fifo"
+    mkfifo "${started}" "${waiting}" "${clean_ready}"
 
-rc=$(run_build "${c}" PODMAN_STUB_TAG=published)
-assert_eq 0 "${rc}" 'exit status priming the published set'
+    local rc
+    rc=$(run_build "${c}" PODMAN_STUB_TAG=published)
+    assert_eq 0 "${rc}" 'exit status priming the published set'
 
-prepare_case "${c}"
-start_build_bg "${c}" "${c}/build.out" \
-    PODMAN_STUB_TAG=later \
-    PODMAN_STUB_STARTED_FIFO="${started}" \
-    PODMAN_STUB_WAIT_FIFO="${waiting}"
-build_pid=${bg_pid}
-read -r _ <"${started}"
+    prepare_case "${c}"
+    start_build_bg "${c}" "${c}/build.out" \
+        PODMAN_STUB_TAG=later \
+        PODMAN_STUB_STARTED_FIFO="${started}" \
+        PODMAN_STUB_WAIT_FIFO="${waiting}"
+    local build_pid=${bg_pid}
+    fifo_read "${started}" 'build to announce it reached phase B' "-${build_pid}" ||
+        return 1
 
-# Announce-then-block: once the hook has fired, clean can only be waiting on
-# the activity lock, which the running build holds shared.
-cat >"${c}/prelock-hook" <<HOOK
+    # Announce-then-block: once the hook has fired, clean can only be waiting
+    # on the activity lock, which the running build holds shared.
+    cat >"${c}/prelock-hook" <<HOOK
 #!/usr/bin/env bash
 echo waiting >"${clean_ready}"
 HOOK
-chmod +x "${c}/prelock-hook"
+    chmod +x "${c}/prelock-hook"
 
-env FLOCK=flock \
-    CACHE_DIR="${c}/cache" \
-    LOCK_DIR="${c}/cache/locks" \
-    DIST_DIR="$(out_dir "${c}")" \
-    CLEAN_PRELOCK_HOOK="${c}/prelock-hook" \
-    "${clean_under_test}" >"${c}/clean.out" 2>&1 &
-clean_pid=$!
-read -r _ <"${clean_ready}"
+    env FLOCK=flock \
+        CACHE_DIR="${c}/cache" \
+        LOCK_DIR="${c}/cache/locks" \
+        DIST_DIR="$(out_dir "${c}")" \
+        CLEAN_PRELOCK_HOOK="${c}/prelock-hook" \
+        "${clean_under_test}" >"${c}/clean.out" 2>&1 &
+    local clean_pid=$!
+    fifo_read "${clean_ready}" 'clean to reach the activity lock' \
+        "${clean_pid}" "-${build_pid}" || return 1
 
-assert_published_set "${c}" published 'clean must not touch output while a build runs'
-assert_file "$(cached_tarball "${c}")" 'clean must not remove the cache yet'
+    assert_published_set "${c}" published 'clean must not touch output while a build runs'
+    assert_file "$(cached_tarball "${c}")" 'clean must not remove the cache yet'
 
-echo go >"${waiting}"
-wait "${build_pid}" || fail "build failed: $(cat "${c}/build.out")"
-wait "${clean_pid}" || fail "clean failed: $(cat "${c}/clean.out")"
+    echo go >"${waiting}"
+    wait "${build_pid}" || fail "build failed: $(cat "${c}/build.out")"
+    wait "${clean_pid}" || fail "clean failed: $(cat "${c}/clean.out")"
 
-assert_no_file "$(out_dir "${c}")" 'output directory after clean'
-assert_no_file "$(cached_tarball "${c}")" 'cached tarball after clean'
-[[ -d "${c}/cache/locks" ]] || fail 'clean removed the lock directory'
-assert_locks_free "${c}" 'after clean'
+    assert_no_file "$(out_dir "${c}")" 'output directory after clean'
+    assert_no_file "$(cached_tarball "${c}")" 'cached tarball after clean'
+    [[ -d "${c}/cache/locks" ]] || fail 'clean removed the lock directory'
+    assert_locks_free "${c}" 'after clean'
+}
+
+start 'clean waits for an in-flight build and keeps the lock directory'
+clean_race_case
 
 start 'clean empties the cache but keeps the lock directory'
 c="${workdir}/clean-cache"
@@ -1359,7 +1419,9 @@ cancellation_case() {
         PODMAN_STUB_STARTED_FIFO="${started}" \
         PODMAN_STUB_WAIT_FIFO="${waiting}"
     local build_pid=${bg_pid}
-    read -r _ <"${started}"
+    fifo_read "${started}" \
+        "build to announce it reached phase B (${signal})" "-${build_pid}" ||
+        return 1
     # setsid gave the build its own process group, so this reaches the stub too.
     kill "-${signal}" -"${build_pid}"
     wait "${build_pid}" 2>/dev/null || true
