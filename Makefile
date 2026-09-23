@@ -48,6 +48,9 @@ unit:
 	scripts/tests/test-systemd-fixture.sh
 	scripts/tests/test-cuse-scripts.sh
 	scripts/tests/test-release-scripts.sh
+	scripts/tests/test-verify-release.sh
+	scripts/tests/test-virt-preflight.sh
+	scripts/tests/test-upgrade-fixture.sh
 	scripts/tests/model_check.py
 
 # The higher-release rebuild that the upgrade tests install over the package
