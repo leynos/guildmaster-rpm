@@ -1,6 +1,7 @@
 name: Set up the container test tier
 description: >
-  Install tmt and check that the runner can run rootless systemd containers.
+  Install tmt and uv, and check that the runner can run rootless systemd
+  containers.
   The preflight fails the job if it cannot; nothing falls back to privileged
   containers.
 runs:
@@ -9,6 +10,11 @@ runs:
     - name: Install tmt
       shell: bash
       run: pipx install 'tmt[provision-container]==1.78.0'
+
+    # make test-<target> runs make unit first, and the workflow suite there
+    # runs through uv.
+    - name: Install uv
+      uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
 
     # A hosted runner's job does not run inside a login session, so the
     # user's systemd manager, which rootless Podman's systemd cgroup manager

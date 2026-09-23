@@ -128,6 +128,13 @@ lint-shell:
 	shfmt -d -i 4 $(SHELL_SOURCES)
 
 lint-python:
+	@# ruff's EXE001 cannot see the executable bit on every filesystem (WSL
+	@# mounts, for one), so check scripts with a shebang explicitly.
+	@status=0; for f in $$(git ls-files '*.py'); do \
+		if [ "$$(head -c 2 "$$f")" = '#!' ] && [ "$$(git ls-files -s "$$f" | cut -c1-6)" != 100755 ]; then \
+			echo "$$f has a shebang but is not executable in git" >&2; status=1; \
+		fi; \
+	done; exit $$status
 	uvx ruff check $(PYTHON_SOURCES)
 	uvx ruff format --check $(PYTHON_SOURCES)
 

@@ -508,6 +508,51 @@ def check_composite_setup_container(bundle: Bundle) -> None:
     assert "enable-linger" in raw, "setup-container-tier must enable lingering"
 
 
+UV_MAKE_TARGET = re.compile(
+    r"make\b[^\n]*?[\s\"'](lint|unit|test-(?:\$\{TARGET\}|rocky-10|fedora-43))(?![\w-])"
+)
+"""``make`` targets whose recipes run ``uv``/``uvx``, directly or via ``unit``."""
+
+
+def _job_provides_uv(job: dict[str, Any], container_action_raw: str) -> bool:
+    """Whether a job installs uv before its steps run.
+
+    Parameters
+    ----------
+    job : dict[str, Any]
+        A parsed workflow job.
+    container_action_raw : str
+        Raw text of the setup-container-tier composite action.
+
+    Returns
+    -------
+    bool
+        True when a step uses astral-sh/setup-uv, or uses the container-tier
+        set-up action and that action installs uv.
+    """
+    for step in job.get("steps", []):
+        uses = step.get("uses", "")
+        if uses.startswith("astral-sh/setup-uv@"):
+            return True
+        if uses == "./.github/actions/setup-container-tier":
+            return "astral-sh/setup-uv@" in container_action_raw
+    return False
+
+
+def check_uv_available_for_make(bundle: Bundle) -> None:
+    """Every job running a make target that needs uv installs uv first."""
+    container_raw = bundle.action_raws["setup-container-tier"]
+    for name, doc in bundle.docs.items():
+        for job_name, job in doc["jobs"].items():
+            runs = "\n".join(step.get("run", "") for step in job.get("steps", []))
+            if UV_MAKE_TARGET.search(runs) is None:
+                continue
+            assert _job_provides_uv(job, container_raw), (
+                f"{name}:{job_name} runs a make target that needs uv, "
+                "but no step installs it"
+            )
+
+
 def check_logs_under_runner_temp(bundle: Bundle) -> None:
     """Every tee target in the workflows is under ${RUNNER_TEMP}."""
     for name, raw in bundle.raws.items():
@@ -536,6 +581,7 @@ CHECKS: list[tuple[str, Callable[[Bundle], None]]] = [
     ("setup-cuse-tier preflight", check_composite_setup_cuse),
     ("setup-container-tier preflight", check_composite_setup_container),
     ("logs under RUNNER_TEMP", check_logs_under_runner_temp),
+    ("uv installed wherever make needs it", check_uv_available_for_make),
 ]
 
 
@@ -593,6 +639,16 @@ def _never_cancel_becomes_always_cancel(raw: str) -> str:
     return raw.replace("cancel-in-progress: false", "cancel-in-progress: true", 1)
 
 
+def _drop_setup_uv_from_ci(raw: str) -> str:
+    """Remove the setup-uv step from ci.yml's lint-and-unit job."""
+    return raw.replace(
+        "      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e"
+        " # v6.8.0\n",
+        "",
+        1,
+    )
+
+
 MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]] = [
     (
         "acceptance.yml gains a pull_request trigger",
@@ -635,6 +691,12 @@ MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]]
         "release",
         _never_cancel_becomes_always_cancel,
         check_concurrency,
+    ),
+    (
+        "ci lint-and-unit loses its uv set-up",
+        "ci",
+        _drop_setup_uv_from_ci,
+        check_uv_available_for_make,
     ),
 ]
 
