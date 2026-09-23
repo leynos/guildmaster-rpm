@@ -117,6 +117,23 @@ fi
 }
 echo "fake rpm bytes ${RANDOM}" >"${out_dir}/guildmaster-0.1-1.upgradetest.x86_64.rpm"
 STUB
+# flock-announce: wraps the real flock. When invoked with "-x" — the only
+# exclusive flock call build-upgrade-fixture.sh makes is on the per-target
+# fixture lock — it announces the request on ${FLOCK_ANNOUNCE_FIFO} before
+# executing the real flock, so the lock-contention test can prove the
+# runner actually reached and requested that lock, rather than merely
+# being slow to start.
+cat >"${stub_dir}/flock-announce" <<'STUB'
+#!/usr/bin/env bash
+set -u
+if [[ ${1:-} == -x && -n ${FLOCK_ANNOUNCE_FIFO:-} ]]; then
+    exec {announce_fd}<>"${FLOCK_ANNOUNCE_FIFO}"
+    printf 'requesting\n' >&"${announce_fd}"
+    exec {announce_fd}>&-
+fi
+exec flock "$@"
+STUB
+
 chmod +x "${stub_dir}"/*
 
 # new_scenario <name>: a scenario directory with the cache, locks and dist
@@ -288,32 +305,43 @@ lockfile=${SCENARIO}/cache/locks/upgrade-fixture-rocky-10.lock
 : >"${lockfile}"
 holder_ready=${SCENARIO}/holder-ready.fifo
 holder_release=${SCENARIO}/holder-release.fifo
-mkfifo "${holder_ready}" "${holder_release}"
+announce_fifo=${SCENARIO}/flock-announce.fifo
+mkfifo "${holder_ready}" "${holder_release}" "${announce_fifo}"
 flock -x "${lockfile}" -c "echo held >'${holder_ready}'; read -r _ <'${holder_release}'" &
 holder_pid=$!
 fifo_read "${holder_ready}" 'the external lock holder to take the per-target lock' "${holder_pid}"
 
-env PODMAN="${stub_dir}/podman" FLOCK=flock CACHE_DIR="${SCENARIO}/cache" \
+env PODMAN="${stub_dir}/podman" FLOCK="${stub_dir}/flock-announce" \
+    FLOCK_ANNOUNCE_FIFO="${announce_fifo}" CACHE_DIR="${SCENARIO}/cache" \
     LOCK_DIR="${SCENARIO}/cache/locks" DIST_DIR="${SCENARIO}/dist" \
     "${SCRIPT_UNDER_TEST}" fake-image rocky-10 \
     >"${SCENARIO}/stdout" 2>"${SCENARIO}/stderr" &
 runner_pid=$!
 
-if kill -0 "${runner_pid}" 2>/dev/null; then
-    ok 'the invocation is still running while the external holder keeps the lock'
-else not_ok 'the invocation exited before the lock was released'; fi
-if [[ ! -s ${SCENARIO}/podman.log ]]; then
-    ok 'podman has not been invoked while blocked on the per-target lock'
-else not_ok 'podman was invoked before the lock was available'; fi
+# Wait for the runner to actually request the per-target lock before
+# asserting it is blocked: a copy of the script missing the "flock -x" call
+# would otherwise pass these assertions vacuously, simply by being slow to
+# start.
+if fifo_read "${announce_fifo}" 'the runner to request the per-target lock' "${runner_pid}" "${holder_pid}"; then
+    if kill -0 "${runner_pid}" 2>/dev/null; then
+        ok 'the invocation is still running while the external holder keeps the lock'
+    else not_ok 'the invocation exited before the lock was released'; fi
+    if [[ ! -s ${SCENARIO}/podman.log ]]; then
+        ok 'podman has not been invoked while blocked on the per-target lock'
+    else not_ok 'podman was invoked before the lock was available'; fi
 
-echo go >"${holder_release}"
-wait "${holder_pid}"
-status=0
-wait "${runner_pid}" || status=$?
-assert_status "${status}" 0
-if [[ -s ${SCENARIO}/podman.log ]]; then
-    ok 'podman is invoked once the lock becomes available'
-else not_ok 'podman was never invoked after the lock was released'; fi
+    echo go >"${holder_release}"
+    wait "${holder_pid}"
+    status=0
+    wait "${runner_pid}" || status=$?
+    assert_status "${status}" 0
+    if [[ -s ${SCENARIO}/podman.log ]]; then
+        ok 'podman is invoked once the lock becomes available'
+    else not_ok 'podman was never invoked after the lock was released'; fi
+else
+    wait "${runner_pid}" 2>/dev/null || true
+    wait "${holder_pid}" 2>/dev/null || true
+fi
 
 echo
 echo "build-upgrade-fixture tests: ${passed} passed, ${failed} failed"
@@ -362,6 +390,30 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
         'if [[ -f ${out_dir}/source.sha256 && $(cat "${out_dir}/source.sha256") == "${srpm_sum}" ]]; then' \
         "${mutant_dir}/no-reuse-check.sh"
 
+    # make_line_removal_mutant <source> <pattern> <output>: copy <source>
+    # without the one line matching <pattern> (a fixed string). Fails
+    # loudly when the pattern matches zero or more than one line, so a
+    # later edit to the script cannot silently turn the mutant into a copy
+    # of the original.
+    make_line_removal_mutant() {
+        local source=$1 pattern=$2 output=$3 matches line
+        matches=$(grep -nF -- "${pattern}" "${source}" | cut -d: -f1)
+        if [[ $(grep -c . <<<"${matches}") -ne 1 ]]; then
+            echo "FAIL: mutant pattern '${pattern}' matches $(grep -c . <<<"${matches}") lines of ${source}" >&2
+            exit 1
+        fi
+        line=${matches}
+        sed "${line}d" "${source}" >"${output}"
+        chmod +x "${output}"
+    }
+
+    # Mutant: build-upgrade-fixture.sh no longer takes the per-target
+    # exclusive lock before reusing or rebuilding, so concurrent
+    # invocations for the same target race each other.
+    # shellcheck disable=SC2016
+    make_line_removal_mutant "${repo_root}/scripts/build-upgrade-fixture.sh" \
+        '"${FLOCK}" -x "${fixture_fd}"' "${mutant_dir}/no-fixture-lock.sh"
+
     mutant_status=0
 
     # check_mutant <label> [extra env assignments...]: rerun this suite
@@ -383,6 +435,11 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
     }
 
     check_mutant no-reuse-check SCRIPT_UNDER_TEST="${mutant_dir}/no-reuse-check.sh"
+    # A short FIFO_TIMEOUT keeps this bounded: without the per-target lock
+    # call, "flock-announce" never fires, so the lock-contention case's
+    # fifo_read is expected to time out and fail rather than hang for the
+    # suite's default 60s.
+    check_mutant no-fixture-lock SCRIPT_UNDER_TEST="${mutant_dir}/no-fixture-lock.sh" FIFO_TIMEOUT=5
 
     [[ ${mutant_status} -eq 0 ]] || suite_status=1
 fi
