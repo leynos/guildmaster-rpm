@@ -71,10 +71,18 @@ for target in ${TARGETS}; do
         [[ ${file_version} == "${version}" && ${file_release} == "${release}.${dist}" ]] ||
             die "$(basename "${asset}") is ${file_version}-${file_release}, not ${version}-${release}.${dist}"
         [[ ${epoch} == '(none)' ]] || die "$(basename "${asset}") has an epoch"
-        [[ ${arch} == "${ARCH}" ]] || die "$(basename "${asset}") has arch ${arch}"
+        # A source package reports "src" on some rpm versions and the build
+        # architecture on others; binary packages must be native.
         case ${asset} in
-        *.src.rpm) relative=srpm/$(basename "${asset}") ;;
-        *) relative=$(basename "${asset}") ;;
+        *.src.rpm)
+            [[ ${arch} == src || ${arch} == "${ARCH}" ]] ||
+                die "$(basename "${asset}") has arch ${arch}"
+            relative=srpm/$(basename "${asset}")
+            ;;
+        *)
+            [[ ${arch} == "${ARCH}" ]] || die "$(basename "${asset}") has arch ${arch}"
+            relative=$(basename "${asset}")
+            ;;
         esac
         cp "${asset}" "${out}/${target}/${relative}"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${relative}" "${name}" "${epoch}" \

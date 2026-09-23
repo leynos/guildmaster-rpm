@@ -287,7 +287,7 @@ new_guest_scenario guest_not_an_overlay
 echo '/somewhere/else.qcow2' >"${SCENARIO}/backing"
 run_guest
 assert_status "${status}" 1
-assert_contains "${SCENARIO}/out" 'not by the verified image' 'a guest disk backed by another image is refused'
+assert_contains "${SCENARIO}/out" 'which is not the verified image' 'a guest disk backed by another image is refused'
 assert_own_cleanup
 
 new_guest_scenario guest_provision_fails
@@ -316,6 +316,32 @@ touch "${SCENARIO}/no_facts"
 run_guest
 assert_status "${status}" 1
 assert_contains "${SCENARIO}/out" 'recorded no facts' 'a run without the environment preflight is not accepted'
+
+new_guest_scenario guest_backing_is_verified_copy
+cp "${SCENARIO}/image.qcow2" "${SCENARIO}/copy-in-testcloud-store.qcow2"
+echo "${SCENARIO}/copy-in-testcloud-store.qcow2" >"${SCENARIO}/backing"
+run_guest
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/out" 'event=overlay_verified' 'a byte-identical copy of the image is accepted as backing'
+
+new_guest_scenario guest_upgrade_recorded
+mkdir -p "${SCENARIO}/upgrade"
+echo 'upgrade payload' >"${SCENARIO}/upgrade/guildmaster-0.1^1-1.el10.upgradetest.x86_64.rpm"
+run_guest UPGRADE_RPM_DIR="${SCENARIO}/upgrade"
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/out" 'event=upgrade_rpm_selected' 'upgrade packages are logged with checksums'
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" 'upgrade_rpms:' \
+    'upgrade package checksums are recorded as evidence'
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
+    "$(sha256sum <"${SCENARIO}/upgrade/guildmaster-0.1^1-1.el10.upgradetest.x86_64.rpm" | cut -d' ' -f1)" \
+    'with the checksum of the staged bytes'
+
+new_guest_scenario guest_upgrade_empty
+mkdir -p "${SCENARIO}/upgrade"
+run_guest UPGRADE_RPM_DIR="${SCENARIO}/upgrade"
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'holds no RPMs' 'an empty upgrade directory is refused'
+assert_lacks "${SCENARIO}/tmt.log" ' execute ' 'and no test is run'
 
 new_guest_scenario guest_cleanup_fallback
 touch "${SCENARIO}/cleanup_fails"

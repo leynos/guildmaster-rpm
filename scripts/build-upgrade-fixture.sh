@@ -56,11 +56,17 @@ mkdir -p "${LOCK_DIR}" "${out_root}"
 exec {activity_fd}>"${LOCK_DIR}/activity.lock"
 "${FLOCK}" -s "${activity_fd}"
 
-srpm=$(find "${DIST_DIR}/${target}/srpm" -maxdepth 1 -name 'guildmaster-*.src.rpm' 2>/dev/null)
+# A missing directory must reach the diagnostic below, not stop set -e.
+srpm=$(find "${DIST_DIR}/${target}/srpm" -maxdepth 1 -name 'guildmaster-*.src.rpm' 2>/dev/null || true)
 [[ -n ${srpm} && $(wc -l <<<"${srpm}") -eq 1 ]] || {
     echo "$0: expected exactly one source RPM in ${DIST_DIR}/${target}/srpm; run make rpm-${target}" >&2
     exit 1
 }
+
+# One build per target at a time. The lock is held until the new directory
+# is published, so a second invocation waits and then reuses the result.
+exec {fixture_fd}>"${LOCK_DIR}/upgrade-fixture-${target}.lock"
+"${FLOCK}" -x "${fixture_fd}"
 
 # Reuse a fixture that was built from this exact source RPM.
 srpm_sum=$(sha256sum <"${srpm}" | cut -d' ' -f1)

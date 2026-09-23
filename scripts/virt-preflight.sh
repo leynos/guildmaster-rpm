@@ -76,8 +76,10 @@ fi
 
 # The device node existing is not enough: ask libvirt whether it can create
 # KVM domains for this architecture.
-if "${VIRSH}" --connect qemu:///session capabilities 2>/dev/null |
-    grep -q "<domain type='kvm'"; then
+# Captured first: grep -q exiting early would make a pipeline fail with
+# SIGPIPE under pipefail.
+capabilities=$("${VIRSH}" --connect qemu:///session capabilities 2>/dev/null) || capabilities=
+if [[ ${capabilities} == *"<domain type='kvm'"* ]]; then
     record kvm_domains ok
 else
     record kvm_domains fail 'detail="libvirt does not offer KVM domains in this session; only emulation is available"'

@@ -179,9 +179,32 @@ stage_rpms() {
     cp "${repo_root}/packaging/check-tokens-option.sh" "${data_dir}/"
 
     if [[ -n ${UPGRADE_RPM_DIR} ]]; then
-        mkdir -p "${data_dir}/upgrade"
-        cp "${UPGRADE_RPM_DIR}"/*.rpm "${data_dir}/upgrade/"
+        stage_upgrade_rpms "${data_dir}"
     fi
+}
+
+# The upgrade fixture has no manifest; each copy is checked against the file
+# it was copied from, and its checksum is logged and recorded as evidence.
+stage_upgrade_rpms() {
+    local data_dir=$1 source_dir=${UPGRADE_RPM_DIR} package staged sha256
+    [[ ${source_dir} == /* ]] || source_dir=${repo_root}/${source_dir}
+    local -a packages=()
+    for package in "${source_dir}"/*.rpm; do
+        [[ -f ${package} ]] && packages+=("${package}")
+    done
+    [[ ${#packages[@]} -gt 0 ]] ||
+        die "UPGRADE_RPM_DIR ${source_dir} holds no RPMs; run make upgrade-fixture-${target}"
+    mkdir -p "${data_dir}/upgrade"
+    : >"${data_dir}/upgrade.sha256"
+    for package in "${packages[@]}"; do
+        staged=${data_dir}/upgrade/$(basename "${package}")
+        cp "${package}" "${staged}"
+        sha256=$(checksum_of "${staged}")
+        [[ ${sha256} == "$(checksum_of "${package}")" ]] ||
+            die "the staged copy of $(basename "${package}") differs from its source"
+        printf '%s\t%s\n' "$(basename "${package}")" "${sha256}" >>"${data_dir}/upgrade.sha256"
+        log_event upgrade_rpm_selected "file=$(basename "${package}")" "sha256=${sha256}"
+    done
 }
 
 # Show, rather than assume, that the guest's disk is an overlay whose backing
@@ -198,9 +221,14 @@ verify_overlay() {
     backing=$("${QEMU_IMG}" info --force-share --output=json "${disk}" |
         sed -n 's/^ *"full-backing-filename": *"\(.*\)",\{0,1\}$/\1/p' | head -n 1)
     [[ -n ${backing} ]] || die "the guest disk ${disk} has no backing file; it is not an overlay"
-    [[ $(readlink -f "${backing}") == "$(readlink -f "${image}")" ]] ||
-        die "the guest disk is backed by ${backing}, not by the verified image ${image}"
-    log_event overlay_verified "instance=${instance}" "backing=${image}"
+    # testcloud may link the image into its own store or copy it there. A
+    # link resolves to the verified file; a copy is accepted only if its bytes
+    # are the pinned image's.
+    if [[ $(readlink -f "${backing}") != "$(readlink -f "${image}")" ]]; then
+        [[ -f ${backing} && $(checksum_of "${backing}") == "${image_sha256}" ]] ||
+            die "the guest disk is backed by ${backing}, which is not the verified image ${image}"
+    fi
+    log_event overlay_verified "instance=${instance}" "backing=${backing}"
 }
 
 write_evidence() {
@@ -223,6 +251,10 @@ write_evidence() {
         "${PREFLIGHT}" | sed -n 's/^preflight_event check=\(virtual_provisioner\|libvirt_session\) status=ok /host_\1: /p'
         echo "rpms:"
         cut -f1,7 "${rpm_dir}/manifest.tsv" | sed 's/^/  /'
+        if [[ -s ${data_dir}/upgrade.sha256 ]]; then
+            echo "upgrade_rpms:"
+            sed 's/^/  /' "${data_dir}/upgrade.sha256"
+        fi
         echo "guest_facts:"
         sed 's/^/  /' "${data_dir}/guest-facts.txt"
     } >"${evidence}"
