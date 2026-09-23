@@ -48,6 +48,8 @@ if ! modinfo cuse >/dev/null 2>&1; then
         dnf -y install kernel kernel-modules-extra ||
             environment_error 'could not install a current kernel with its extra modules'
         tmt-reboot
+        # tmt-reboot does not return when the reboot is accepted.
+        environment_error 'tmt-reboot returned without rebooting the guest'
     else
         environment_error "no cuse.ko for the running kernel ${kernel}, even after a kernel update and reboot"
     fi

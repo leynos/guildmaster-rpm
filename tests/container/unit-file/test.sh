@@ -52,5 +52,5 @@ check 'udev rules restrict /dev/guild to the guild group' \
     grep -qx 'KERNEL=="guild", SUBSYSTEM=="cuse", GROUP="guild", MODE="0660"' \
     /usr/lib/udev/rules.d/70-guildmaster.rules
 check_not 'no world-accessible device mode is shipped' \
-    grep -E 'MODE="0?66[1-7]"|MODE="0?6[0-7][1-7]"' /usr/lib/udev/rules.d/70-guildmaster.rules
+    grep -E 'MODE="0?[0-7]{2}[1-7]"' /usr/lib/udev/rules.d/70-guildmaster.rules
 finish

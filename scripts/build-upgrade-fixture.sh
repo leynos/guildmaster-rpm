@@ -81,8 +81,10 @@ staging=$(mktemp -d "${out_root}/${target}.XXXXXX")
         set -euo pipefail
         {
             dnf -y install rpm-build dnf-plugins-core
-            if grep -q "^ID=\"rocky\"" /etc/os-release; then
-                dnf config-manager --set-enabled crb
+            # The same detection and dnf4/dnf5 spellings as build-rpm.sh.
+            if grep -q "^ID=\"\?rocky\"\?$" /etc/os-release; then
+                dnf -y config-manager --set-enabled crb ||
+                    dnf -y config-manager setopt crb.enabled=1
             fi
             dnf -y builddep /work/guildmaster.src.rpm
         } >/tmp/deps.log 2>&1 || {

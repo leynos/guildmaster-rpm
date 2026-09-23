@@ -13,6 +13,8 @@ if [[ ${TMT_REBOOT_COUNT:-0} -eq 0 ]]; then
     [[ ${failures} -eq 0 ]] || finish
     uname -r >/var/tmp/gm-kernel-before-reboot
     tmt-reboot
+    # tmt-reboot does not return when the reboot is accepted.
+    environment_error 'tmt-reboot returned without rebooting the guest'
 fi
 
 check_equal 'the same kernel is running' "$(uname -r)" "$(cat /var/tmp/gm-kernel-before-reboot)"
