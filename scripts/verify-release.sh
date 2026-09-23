@@ -66,6 +66,7 @@ for target in ${TARGETS}; do
     esac
     mkdir -p "${out}/${target}/srpm"
     count=0
+    roles=
     for asset in "${out}"/assets/guildmaster*."${dist}".*.rpm; do
         [[ -f ${asset} ]] || continue
         IFS=$'\t' read -r name epoch file_version file_release arch < <(
@@ -82,10 +83,12 @@ for target in ${TARGETS}; do
             [[ ${arch} == src || ${arch} == "${ARCH}" ]] ||
                 die "$(basename "${asset}") has arch ${arch}"
             relative=srpm/$(basename "${asset}")
+            roles+="${name}:source "
             ;;
         *)
             [[ ${arch} == "${ARCH}" ]] || die "$(basename "${asset}") has arch ${arch}"
             relative=$(basename "${asset}")
+            roles+="${name}:binary "
             ;;
         esac
         cp "${asset}" "${out}/${target}/${relative}"
@@ -95,6 +98,11 @@ for target in ${TARGETS}; do
         count=$((count + 1))
     done
     [[ ${count} -eq 4 ]] || die "${target}: expected 4 packages in the release, found ${count}"
+    # Four files are not enough: each of the four packages must be present
+    # once, identified by the name RPM reports, not by the file name.
+    roles=$(tr ' ' '\n' <<<"${roles}" | grep -v '^$' | LC_ALL=C sort | paste -sd' ' -)
+    [[ ${roles} == "guildmaster-debuginfo:binary guildmaster-debugsource:binary guildmaster:binary guildmaster:source" ]] ||
+        die "${target}: the release does not hold exactly one of each package; found ${roles}"
     echo "verify-release: ${target}: ${count} packages verified"
 done
 echo "verify-release: release ${tag} verified in ${out}"

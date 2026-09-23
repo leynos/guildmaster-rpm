@@ -226,6 +226,19 @@ run_verify TARGETS=rocky-10
 assert_status "${status}" 0
 ok 'an SRPM reporting the build architecture (not "src") is also accepted'
 
+# --- reject: four files that are not the four packages ----------------------
+
+new_scenario verify_duplicate_role
+add_asset guildmaster-bin.el10.x86_64.rpm guildmaster '(none)' "${version}" "${release}.el10" x86_64
+add_asset guildmaster-debugsource.el10.x86_64.rpm guildmaster-debugsource '(none)' "${version}" "${release}.el10" x86_64
+add_asset guildmaster-debugsource-again.el10.x86_64.rpm guildmaster-debugsource '(none)' "${version}" "${release}.el10" x86_64
+add_asset guildmaster-src.el10.src.rpm guildmaster '(none)' "${version}" "${release}.el10" src
+write_sha256sums
+run_verify TARGETS=rocky-10
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/stderr" 'does not hold exactly one of each package' \
+    'a duplicate debugsource standing in for debuginfo is refused'
+
 # --- reject: malformed tag ----------------------------------------------------
 
 new_scenario verify_malformed_tag

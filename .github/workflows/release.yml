@@ -210,9 +210,16 @@ jobs:
           tag="$GITHUB_REF_NAME"
           if state=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$state" = false ]; then
+              # Compare everything the public release holds, not only its
+              # checksum file: the same asset names, and published bytes that
+              # match their own SHA256SUMS.
               mkdir published
-              gh release download "$tag" --pattern SHA256SUMS --dir published
-              if cmp --silent published/SHA256SUMS assets/SHA256SUMS; then
+              gh release download "$tag" --dir published
+              published_names=$(cd published && find . -maxdepth 1 -type f | sed 's#^\./##' | LC_ALL=C sort)
+              expected_names=$(cd assets && find . -maxdepth 1 -type f ! -name release-notes.md | sed 's#^\./##' | LC_ALL=C sort)
+              if [ "$published_names" = "$expected_names" ] &&
+                (cd published && sha256sum --check --strict --quiet SHA256SUMS) &&
+                cmp --silent published/SHA256SUMS assets/SHA256SUMS; then
                 echo "Release $tag is already published with identical packages."
                 exit 0
               fi
