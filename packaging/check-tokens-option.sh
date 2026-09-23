@@ -64,6 +64,7 @@ expect_rejected 'fraction' --tokens=2.5
 expect_rejected 'one past unsigned long long' --tokens=18446744073709551616
 expect_rejected 'far out of range' --tokens=99999999999999999999999
 expect_rejected 'attached garbage' --tokensx
+expect_rejected 'missing value' -f --tokens
 
 if [[ -r /dev/cuse && -w /dev/cuse ]]; then
     echo 'skip: /dev/cuse is accessible here, so accepted values are not exercised'

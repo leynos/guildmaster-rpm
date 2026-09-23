@@ -11,17 +11,17 @@ Purpose: let the operator choose the token pool capacity. Upstream fixes it
 Behaviour: `--tokens N` and `--tokens=N` accept a positive decimal integer
   that fits in unsigned long long. Zero, signs, whitespace, trailing
   characters, empty and out-of-range values are rejected with a diagnostic
-  and exit status 2 before /dev/cuse is opened. Without the option the
-  upstream default is unchanged. All other arguments still reach libfuse
-  untouched. The selected capacity is logged once at start-up.
+  and exit status 2 before /dev/cuse is opened, as is a trailing
+  `--tokens` with no value. Without the option the upstream default is
+  unchanged. All other arguments still reach libfuse untouched. The selected capacity is logged once at start-up.
 Removal condition: drop when upstream provides an equivalent way to set
   the capacity, adapting the packaged unit and documentation to it.
 ---
 diff --git a/guildmaster.c b/guildmaster.c
-index 41523ba..53077a3 100644
+index 41523ba..179e5da 100644
 --- a/guildmaster.c
 +++ b/guildmaster.c
-@@ -1,10 +1,12 @@
+@@ -1,10 +1,13 @@
  #include <stdio.h>
  #include <stdlib.h>
  
@@ -31,10 +31,11 @@ index 41523ba..53077a3 100644
  #include <poll.h>
  #include <signal.h>
 +#include <stddef.h>
++#include <string.h>
  #include <unistd.h>
  
  #define FUSE_USE_VERSION 35
-@@ -212,16 +214,56 @@ static const struct cuse_lowlevel_ops fops = {
+@@ -212,16 +215,63 @@ static const struct cuse_lowlevel_ops fops = {
  	.poll    = gm_poll,
  };
  
@@ -71,6 +72,13 @@ index 41523ba..53077a3 100644
 -	if ((nproc = sysconf(_SC_NPROCESSORS_ONLN)) < 0) {
 -		perror("sysconf");
 +
++	/* A trailing "--tokens" has no value for the parser to take. */
++	if (argc > 1 && !strcmp(argv[argc - 1], "--tokens")) {
++		gm_log("guildmaster: invalid --tokens value '': "
++		       "expected a positive decimal integer\n");
++		return 2;
++	}
++
 +	struct fuse_args fa = FUSE_ARGS_INIT(argc, argv);
 +	struct gm_opts opts = { 0 };
 +	if (fuse_opt_parse(&fa, &opts, gm_opt_spec, 0))
@@ -95,7 +103,7 @@ index 41523ba..53077a3 100644
  
  	const char *devpath = "/dev/cuse";
  	int cuse_fd;
-@@ -239,8 +281,6 @@ int main(int argc, char **argv)
+@@ -239,8 +289,6 @@ int main(int argc, char **argv)
  		.dev_info_argv = &devname,
  	};
  
