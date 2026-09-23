@@ -103,7 +103,7 @@ accept-cuse-fedora-43: upgrade-fixture-fedora-43
 
 test-device: test-cuse
 
-SHELL_SOURCES := $(wildcard scripts/*.sh scripts/tests/*.sh packaging/*.sh \
+SHELL_SOURCES := $(wildcard scripts/*.sh scripts/tests/*.sh scripts/tests/stubs/*.sh packaging/*.sh \
 	tests/lib/*.sh tests/*/*/test.sh)
 PYTHON_SOURCES := scripts/tests tests/cuse/accounting
 
