@@ -135,6 +135,9 @@ fresh-guest CUSE acceptance plan.
 - [x] (2026-09-21 20:20Z) EP-M6 documentation and lint gates.
 - [x] (2026-09-21 21:05Z) `make release-check` passed on a clean tree at
   `fb84046`; log and evidence kept in the session scratchpad.
+- [x] (2026-09-23 15:00Z) CodeRabbit review: 13 findings, all actioned;
+  `make release-check` passed again on a clean tree at `be97be6`, now with
+  fourteen guest tests per target.
 - [ ] EP-M7 CI, draft PR and review (completed: workflows, release-script
   tests, draft PR #1, first hosted CI run 35648908683 green on
   `ubuntu-24.04` with the rootless systemd preflight passing on Podman
@@ -175,7 +178,11 @@ fresh-guest CUSE acceptance plan.
   `kernel-modules-core`; `cuse.ko.xz` is in `kernel-modules-extra` (which
   pulls in `kernel-modules`), verified in the guest for kernel
   `6.12.0-211.16.1.el10_2.0.1.x86_64`. The matching package was installable
-  without a kernel update or reboot.
+  without a kernel update or reboot on 2026-09-21; by 2026-09-23 it had
+  left the repositories, and the preflight's kernel-update-and-reboot path
+  ran instead (kernel `6.12.0-211.56.1.el10_2.0.1`). Guest kernels move
+  with the repositories even though the base image is pinned; the evidence
+  records each run's kernel.
 - Observation: tmt copies an absolute-path image into its own cache,
   `/var/tmp/tmt/testcloud/images/<basename>`, and boots an overlay of that
   copy. The repository's verified image was unchanged after the run.

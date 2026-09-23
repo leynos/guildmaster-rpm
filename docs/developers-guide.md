@@ -856,15 +856,18 @@ and re-runs this same test with `TMT_REBOOT_COUNT` incremented. If
 still no match is found after that reboot, the test fails outright —
 there is no third attempt.
 
-Verified providers, as recorded in the ExecPlan on 2026-09-21:
+Verified providers, as recorded in the ExecPlan:
 
-- **Rocky Linux 10.2** image, kernel `6.12.0-211.16.1.el10_2.0.1`:
-  `cuse.ko` is provided by `kernel-modules-extra` (which pulls in
-  `kernel-modules`), installable for the already-booted kernel
-  **without** a reboot.
-- **Fedora 43 GA** image: the shipped kernel needed a kernel update
-  plus one reboot; the matching kernel that then ran was
-  `7.2.5-100.fc43`, again with `kernel-modules-extra`.
+- **Rocky Linux 10.2** image: `cuse.ko` is provided by
+  `kernel-modules-extra` (which pulls in `kernel-modules`). On
+  2026-09-21 it was still available for the image's own kernel,
+  `6.12.0-211.16.1.el10_2.0.1`, and no reboot was needed; by 2026-09-23
+  it no longer was, and runs updated to `6.12.0-211.56.1.el10_2.0.1` and
+  rebooted once.
+- **Fedora 43 GA** image: the shipped kernel always needs a kernel
+  update plus one reboot; the kernel that then ran was `7.2.5-100.fc43`
+  on 2026-09-21 and `7.2.6-100.fc43` on 2026-09-23, again with
+  `kernel-modules-extra`.
 
 These are the values that were true for the pinned images at the
 time they were recorded; the evidence file for each real run records
