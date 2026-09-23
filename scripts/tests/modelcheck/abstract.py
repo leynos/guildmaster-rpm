@@ -35,15 +35,15 @@ class ModelState:
 
 
 class _BuildAborted(Exception):
-    pass
+    """Raised by a step to abort its build, as a phase failure would."""
 
 
 class _LockContended(Exception):
-    pass
+    """Raised by a step that finds a lock already held by another build."""
 
 
 class _CleanBlocked(Exception):
-    pass
+    """Raised by clean's step while an activity lock is held."""
 
 
 Step = tuple[str, Callable[[ModelState], None]]
@@ -69,12 +69,15 @@ def _fetch_and_deps_steps(name: str, scenario: dict[str, str]) -> list[Step]:
     """
 
     def acquire_activity(state: ModelState) -> None:
+        """Take the activity lock, as the first step of a build."""
         state.activity_holders += 1
 
     def fetch(state: ModelState) -> None:
+        """Mark the tarball cache as populated by a successful fetch."""
         state.cache = "valid"
 
     def phase_deps(state: ModelState) -> None:
+        """Run the dependency phase, aborting on a modelled deps failure."""
         state.containers.add(name)
         if scenario["build"] == "deps_failure":
             raise _BuildAborted
@@ -103,20 +106,26 @@ def _build_and_validate_steps(name: str, scenario: dict[str, str]) -> list[Step]
     """
 
     def phase_commit(state: ModelState) -> None:
+        """Commit the build environment to an image."""
         state.images.add(name)
 
     def phase_build(state: ModelState) -> None:
+        """Run the build phase, staging its set and aborting on failure."""
         state.staging[name] = scenario["build"]
         if scenario["build"] == "build_failure":
             raise _BuildAborted
 
     def phase_rebuild(state: ModelState) -> None:
+        """Run the SRPM rebuild, releasing the container and image on
+        success or aborting on a modelled rebuild failure.
+        """
         if scenario["build"] == "rebuild_failure":
             raise _BuildAborted
         state.containers.discard(name)
         state.images.discard(name)
 
     def validate(state: ModelState) -> None:
+        """Accept the staged set only when the scenario models success."""
         if scenario["build"] != "success":
             raise _BuildAborted
 
@@ -166,6 +175,7 @@ def _publish_lock_and_publish_steps(name: str, scenario: dict[str, str]) -> list
     """
 
     def take_publish_lock(state: ModelState) -> None:
+        """Take the publication lock, or raise on contention."""
         if state.publish_lock_held:
             REACHED.add("publication_contention")
             raise _LockContended
@@ -173,6 +183,7 @@ def _publish_lock_and_publish_steps(name: str, scenario: dict[str, str]) -> list
         state.in_critical += 1
 
     def publish(state: ModelState) -> None:
+        """Publish directly, or enter the documented fallback window."""
         match scenario["publish"]:
             case "first" | "exchange":
                 state.published = name
@@ -207,6 +218,9 @@ def _make_finish_publish(
     """
 
     def finish_publish(state: ModelState) -> None:
+        """Conclude a fallback publication: promote, roll back, or leave
+        recovery data behind on a modelled rollback failure.
+        """
         match scenario["publish"]:
             case "first" | "exchange":
                 return
@@ -246,12 +260,16 @@ def _release_steps(name: str, scenario: dict[str, str], *, broken: str) -> list[
     """
 
     def release_publish_lock(state: ModelState) -> None:
+        """Release the publication lock, unless ``broken`` models a leak."""
         if broken == "leak_publication_lock":
             return
         state.publish_lock_held = False
         state.in_critical -= 1
 
     def release_activity(state: ModelState) -> None:
+        """Release the activity lock and drop this build's staging entry,
+        unless ``broken`` models a staging leak.
+        """
         state.activity_holders -= 1
         if broken != "leak_staging":
             state.staging.pop(name, None)
@@ -356,6 +374,9 @@ def clean_steps(*, broken: str = "") -> list[Step]:
     """
 
     def wait_and_remove(state: ModelState) -> None:
+        """Wait for the activity lock to be free, then remove the output
+        and cache, unless ``broken`` models clean ignoring the lock.
+        """
         if state.activity_holders != 0 and broken != "clean_ignores_lock":
             raise _CleanBlocked
         state.published = None

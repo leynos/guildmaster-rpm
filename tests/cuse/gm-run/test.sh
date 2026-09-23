@@ -3,6 +3,7 @@
 set -uo pipefail
 . ../../lib/common.sh
 
+# as_member <command...>: run a command as the unprivileged gm-member user.
 as_member() {
     runuser -u gm-member -- "$@"
 }

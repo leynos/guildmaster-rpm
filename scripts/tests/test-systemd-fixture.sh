@@ -22,20 +22,26 @@ passed=0
 failed=0
 current=
 
+# ok <message>: record a passing check for the current test.
 ok() {
     passed=$((passed + 1))
     echo "ok: ${current}: $*"
 }
 
+# not_ok <message>: record a failing check for the current test.
 not_ok() {
     failed=$((failed + 1))
     echo "FAIL: ${current}: $*" >&2
 }
 
+# assert_status <actual> <expected>: pass or fail on whether the two exit
+# statuses match.
 assert_status() {
     if [[ $1 -eq $2 ]]; then ok "exit status $2"; else not_ok "exit status $1, expected $2"; fi
 }
 
+# assert_contains <file> <needle> <message>: pass when <file> contains
+# <needle>; otherwise fail and dump the file for diagnosis.
 assert_contains() {
     if grep -qF -- "$2" "$1"; then ok "$3"; else
         not_ok "$3 (no '$2' in $1)"
@@ -43,6 +49,8 @@ assert_contains() {
     fi
 }
 
+# assert_lacks <file> <needle> <message>: pass when <file> does not contain
+# <needle>.
 assert_lacks() {
     if grep -qF -- "$2" "$1"; then
         not_ok "$3 (found '$2' in $1)"
@@ -150,6 +158,8 @@ run_fixture() {
         >"${SCENARIO}/out" 2>&1 || status=$?
 }
 
+# container_name: the fixture container name the adapter logged for the
+# current scenario, read back from its output.
 container_name() {
     sed -n 's/.*fixture=\(gm-fx-[^ ]*\).*/\1/p' "${SCENARIO}/out" | head -n 1
 }
@@ -330,6 +340,8 @@ run_preflight() {
         "${preflight_script}" >"${SCENARIO}/out" 2>&1 || status=$?
 }
 
+# new_preflight_scenario <name>: a healthy host scenario for
+# podman-preflight.sh; tests then break one check.
 new_preflight_scenario() {
     new_scenario "$1"
     echo 'true v2 systemd crun 5.8.0' >"${SCENARIO}/info"

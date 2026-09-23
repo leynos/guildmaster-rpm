@@ -6,10 +6,14 @@
 
 failures=0
 
+# pass <message>: record a passing check.
 pass() {
     echo "ok: $*"
 }
 
+# fail <message>: record a failing check.
+#
+# Increments the shared `failures` counter that `finish` inspects.
 fail() {
     echo "FAIL: $*" >&2
     failures=$((failures + 1))
@@ -105,6 +109,10 @@ dump_service_diagnostics() {
     fi
 }
 
+# finish: report the outcome and exit accordingly.
+#
+# Reads the shared `failures` counter. On failure, dumps service diagnostics
+# and exits 1; otherwise prints a summary and returns normally.
 finish() {
     if [[ ${failures} -ne 0 ]]; then
         echo "${failures} check(s) failed" >&2

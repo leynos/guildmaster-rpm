@@ -3,6 +3,8 @@
 set -uo pipefail
 . ../../lib/common.sh
 
+# pool_free: how many tokens can be taken right now, measured without
+# blocking and handed straight back.
 pool_free() {
     runuser -u gm-member -- python3 -c '
 import os

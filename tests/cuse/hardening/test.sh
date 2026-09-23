@@ -10,6 +10,8 @@ set -uo pipefail
 
 pid=$(unit_property MainPID)
 [[ ${pid} -gt 0 ]] || environment_error 'guildmaster is not running'
+# status_field <name>: the value of one field from the daemon's
+# /proc/<pid>/status.
 status_field() {
     sed -n "s/^$1:[[:space:]]*//p" "/proc/${pid}/status"
 }

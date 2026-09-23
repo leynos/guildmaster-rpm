@@ -30,6 +30,12 @@ set -euo pipefail
 
 failures=0
 
+# record <check> <status> [field...]: print a "preflight_event" log line.
+#
+# Writes "preflight_event check=<check> status=<status>" followed by each
+# extra field (already "key=value" formatted) space-separated, and
+# increments the shared "failures" counter when <status> is "fail".
+# Always returns 0.
 record() {
     local check=$1 status=$2
     shift 2
@@ -45,6 +51,9 @@ record() {
 }
 
 # expect <check> <actual> <wanted>
+#
+# Records <check> as ok when <actual> equals <wanted>, otherwise records it
+# as fail with the actual and required values. Always returns 0.
 expect() {
     if [[ $2 == "$3" ]]; then
         record "$1" ok "value=$2"
@@ -72,6 +81,10 @@ else
     record user_manager fail 'detail="systemctl --user cannot reach the user manager; enable lingering or log in through a full session"'
 fi
 
+# subordinate_range <file> <kind>: check <file> for a subordinate range.
+#
+# Records <kind> as ok when <file> is readable and contains an entry for
+# the invoking user or UID, otherwise records it as fail. Always returns 0.
 subordinate_range() {
     local file=$1 kind=$2
     if [[ -r ${file} ]] &&

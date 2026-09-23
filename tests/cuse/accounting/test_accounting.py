@@ -73,6 +73,19 @@ class Client:
     """
 
     def __init__(self, name: str) -> None:
+        """Start gmclient.py as the authorized test user and verify its PID.
+
+        Parameters
+        ----------
+        name : str
+            The label to record for this client.
+
+        Raises
+        ------
+        CheckFailed
+            If the client's reported PID does not match the PID of the
+            process that was started.
+        """
         self.name = name
         self.process = subprocess.Popen(
             # setpriv execs the client directly, so this process *is* the
@@ -292,6 +305,23 @@ def expect_pool(probe: Client, handle: int, wanted: int, why: str) -> None:
 
 
 def scenario_capacity_and_waiting(clients: list[Client]) -> None:
+    """Check capacity, admission of a waiting client, and token return.
+
+    Parameters
+    ----------
+    clients : list[Client]
+        Accumulates every client this scenario starts, so ``main`` can
+        finish them all regardless of outcome.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CheckFailed
+        If any observed behaviour disagrees with what is expected.
+    """
     a, b, c, probe = (Client(n) for n in ("a", "b", "c", "probe"))
     clients += [a, b, c, probe]
     ha, hb, hc, hp = a.open(), b.open(), c.open(), probe.open()
@@ -321,6 +351,24 @@ def scenario_capacity_and_waiting(clients: list[Client]) -> None:
 
 
 def scenario_abrupt_death(clients: list[Client]) -> None:
+    """Check that killing a token holder admits a waiting client and
+    restores the dead client's tokens.
+
+    Parameters
+    ----------
+    clients : list[Client]
+        Accumulates every client this scenario starts, so ``main`` can
+        finish them all regardless of outcome.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CheckFailed
+        If any observed behaviour disagrees with what is expected.
+    """
     victim, waiter, probe = Client("victim"), Client("waiter"), Client("probe")
     clients += [victim, waiter, probe]
     hv, hw, hp = victim.open(), waiter.open(), probe.open()
@@ -339,6 +387,24 @@ def scenario_abrupt_death(clients: list[Client]) -> None:
 
 
 def scenario_unmatched_writes(clients: list[Client]) -> None:
+    """Check that writes without a matching read, or more returns than
+    takes, never add tokens to the pool.
+
+    Parameters
+    ----------
+    clients : list[Client]
+        Accumulates every client this scenario starts, so ``main`` can
+        finish them all regardless of outcome.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CheckFailed
+        If any observed behaviour disagrees with what is expected.
+    """
     writer, probe = Client("writer"), Client("probe")
     clients += [writer, probe]
     hw, hp = writer.open(), probe.open()
@@ -355,6 +421,24 @@ def scenario_unmatched_writes(clients: list[Client]) -> None:
 
 
 def scenario_multiple_handles(clients: list[Client]) -> None:
+    """Check that one account is kept per opening process across several
+    of its own handles, not per open file description.
+
+    Parameters
+    ----------
+    clients : list[Client]
+        Accumulates every client this scenario starts, so ``main`` can
+        finish them all regardless of outcome.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CheckFailed
+        If any observed behaviour disagrees with what is expected.
+    """
     owner, probe = Client("owner"), Client("probe")
     clients += [owner, probe]
     first, second, hp = owner.open(), owner.open(), probe.open()
@@ -383,6 +467,24 @@ def scenario_multiple_handles(clients: list[Client]) -> None:
 
 
 def scenario_inherited_handles(clients: list[Client]) -> None:
+    """Check that a token survives its taker's death while a forked
+    child still holds the inherited open file description.
+
+    Parameters
+    ----------
+    clients : list[Client]
+        Accumulates every client this scenario starts, so ``main`` can
+        finish them all regardless of outcome.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CheckFailed
+        If any observed behaviour disagrees with what is expected.
+    """
     parent, probe = Client("parent"), Client("probe")
     clients += [parent, probe]
     handle, hp = parent.open(), probe.open()
@@ -428,6 +530,13 @@ SCENARIOS = [
 
 
 def main() -> int:
+    """Run every scenario, finishing its clients regardless of outcome.
+
+    Returns
+    -------
+    int
+        0 if every scenario passed; 1 if any scenario failed.
+    """
     failures = 0
     for scenario in SCENARIOS:
         print(f"--- {scenario.__name__}")

@@ -48,11 +48,20 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 : "${SOURCE_COMMIT:=$(git -C "${repo_root}" rev-parse HEAD 2>/dev/null || echo unknown)}"
 : "${EVIDENCE_DIR:=}"
 
+# die <message>: report a fatal error and abort.
+#
+# Prints "assemble-release: <message>" to stderr and exits the script with
+# status 1.
 die() {
     echo "assemble-release: $*" >&2
     exit 1
 }
 
+# dist_for <target>: print the RPM dist tag for a build target.
+#
+# Maps a target name (for example "rocky-10") to its dist tag (for example
+# "el10") on stdout. Calls die, which exits the script, for an unknown
+# target.
 dist_for() {
     case $1 in
     rocky-10) echo el10 ;;
@@ -61,6 +70,10 @@ dist_for() {
     esac
 }
 
+# spec_global <name>: print a %global value from the spec file.
+#
+# Reads SPEC and prints the first value assigned to "%global <name>" on
+# stdout, or nothing if it is not defined there.
 spec_global() {
     sed -n "s/^%global[[:space:]]\+$1[[:space:]]\+//p" "${SPEC}" | head -n 1
 }

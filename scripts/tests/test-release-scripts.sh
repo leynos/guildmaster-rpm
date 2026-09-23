@@ -23,20 +23,26 @@ passed=0
 failed=0
 current=
 
+# ok <message>: record a passing check for the current test.
 ok() {
     passed=$((passed + 1))
     echo "ok: ${current}: $*"
 }
 
+# not_ok <message>: record a failing check for the current test.
 not_ok() {
     failed=$((failed + 1))
     echo "FAIL: ${current}: $*" >&2
 }
 
+# assert_status <actual> <expected>: pass or fail on whether the two exit
+# statuses match.
 assert_status() {
     if [[ $1 -eq $2 ]]; then ok "exit status $2"; else not_ok "exit status $1, expected $2"; fi
 }
 
+# assert_contains <file> <needle> <message>: pass when <file> contains
+# <needle>; otherwise fail and dump the file for diagnosis.
 assert_contains() {
     if grep -qF -- "$2" "$1"; then ok "$3"; else
         not_ok "$3 (no '$2' in $1)"
@@ -44,6 +50,8 @@ assert_contains() {
     fi
 }
 
+# assert_lacks <file> <needle> <message>: pass when <file> does not contain
+# <needle>.
 assert_lacks() {
     if grep -qF -- "$2" "$1"; then not_ok "$3 (found '$2' in $1)"; else ok "$3"; fi
 }
@@ -104,6 +112,8 @@ arch=x86_64
 expected_tag="v${version/^/-}-${release}"
 source_commit=deadbeefcafef00d
 
+# new_assemble_scenario <name>: a scenario directory with the baseline spec
+# in place; tests then add target directories and break one thing.
 new_assemble_scenario() {
     current=$1
     SCENARIO=${scratch}/${current}
@@ -118,6 +128,9 @@ build_valid_targets() {
     build_target "${SCENARIO}/artefacts/fedora-43" "${dist_fedora}" "${version}" "${release}" "${arch}"
 }
 
+# run_assemble [extra env assignments...]: run assemble-release.sh against
+# the current scenario; output in ${SCENARIO}/stdout and .../stderr, status
+# in $status.
 run_assemble() {
     status=0
     env SPEC="${SCENARIO}/spec" SOURCE_COMMIT="${source_commit}" "$@" \
@@ -381,6 +394,8 @@ write_cuse_evidence() {
     } >"${path}"
 }
 
+# new_evidence_scenario <name>: a scenario directory with dist manifests for
+# both targets in place; tests then write evidence and break one thing.
 new_evidence_scenario() {
     current=$1
     SCENARIO=${scratch}/${current}
@@ -403,6 +418,9 @@ build_valid_evidence() {
     done
 }
 
+# run_evidence [extra env assignments...]: run release-evidence.sh against
+# the current scenario; output in ${SCENARIO}/stdout and .../stderr, status
+# in $status.
 # shellcheck disable=SC2120 # some scenarios pass extra env overrides, most do not
 run_evidence() {
     status=0
@@ -411,6 +429,8 @@ run_evidence() {
         "${EVIDENCE_SCRIPT}" >"${SCENARIO}/stdout" 2>"${SCENARIO}/stderr" || status=$?
 }
 
+# assert_no_record: pass when a rejected run wrote no release-candidate
+# evidence.
 assert_no_record() {
     if [[ ! -e ${SCENARIO}/evidence/release-candidate.txt ]]; then
         ok 'no release-candidate record is written'
@@ -564,6 +584,8 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
 
     mutant_status=0
 
+    # check_mutant <label> [extra env assignments...]: rerun this suite
+    # against a mutant script and record whether it failed as expected.
     check_mutant() {
         local label=$1
         shift

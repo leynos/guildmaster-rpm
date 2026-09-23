@@ -42,6 +42,10 @@ out_root=${CACHE_DIR}/upgrade-fixture
 out_dir=${out_root}/${target}
 staging=
 
+# cleanup: remove the in-progress staging directory, if any.
+#
+# Reads the "staging" global and removes it when set and present. Always
+# returns 0. Invoked from the EXIT, INT and TERM traps.
 cleanup() {
     if [[ -n ${staging} && -e ${staging} ]]; then
         rm -rf "${staging}"

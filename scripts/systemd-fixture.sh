@@ -77,6 +77,12 @@ work_dir=${WORK_ROOT}/${name}
 container_started=no
 succeeded=no
 
+# log_event <event> [field...]: print a structured "fixture_event" log
+# line.
+#
+# Writes "fixture_event event=<event> target=<target> fixture=<name>
+# elapsed_seconds=<SECONDS>" followed by each extra field (already
+# "key=value" formatted) space-separated. Always returns 0.
 log_event() {
     local event=$1
     shift
@@ -89,6 +95,10 @@ log_event() {
     printf '\n'
 }
 
+# die <message>: log a failure and abort the script.
+#
+# Logs a fixture_failed event with <message> as its detail, prints
+# "$0: <message>" to stderr, then exits the script with status 1.
 die() {
     log_event fixture_failed "detail=\"$*\""
     echo "$0: $*" >&2
@@ -98,6 +108,12 @@ die() {
 # Best-effort capture of what a reader needs to diagnose a failed run. Runs
 # before the container is removed. None of it contains credentials: it is the
 # fixture's own journal and unit state.
+#
+# capture_diagnostics: dump the fixture's journal and unit state.
+#
+# Writes the container's journal, failed units, guildmaster.service state,
+# inspect output and console log under work_dir/diagnostics. Every capture
+# is best-effort; failures are ignored. Always returns 0.
 capture_diagnostics() {
     local out=${work_dir}/diagnostics
     mkdir -p "${out}"
@@ -111,6 +127,12 @@ capture_diagnostics() {
     log_event diagnostics_captured "path=${out}"
 }
 
+# cleanup: remove this run's container and reclaim its working directory.
+#
+# Invoked from the EXIT, INT and TERM traps. Captures diagnostics before
+# removing the container when the run did not succeed, then force-removes
+# the container. Removes work_dir unless the run failed or KEEP_WORKDIR is
+# set. Exits the script with the original status.
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -135,6 +157,11 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# acquire_activity_lock: take the shared activity lock.
+#
+# Creates LOCK_DIR if needed and blocks until a shared lock on
+# activity.lock is held, so that "make clean" waits for this run. Always
+# returns 0.
 acquire_activity_lock() {
     mkdir -p "${LOCK_DIR}"
     exec {activity_fd}>"${LOCK_DIR}/activity.lock"
@@ -144,6 +171,14 @@ acquire_activity_lock() {
 # Copy the packages under test into the working directory and check every one
 # against the manifest the build wrote, so that the run installs exactly the
 # bytes that were built and records which bytes those were.
+#
+# select_rpms: stage the packages under test into the working directory.
+#
+# Copies every file listed in rpm_dir/manifest.tsv into work_dir/rpms,
+# verifying each against its manifest checksum, and copies the manifest
+# alongside them. Also copies the upgrade fixture into work_dir/upgrade
+# when UPGRADE_RPM_DIR is set. Calls die, which exits the script, on any
+# missing file or checksum mismatch.
 select_rpms() {
     local manifest=${rpm_dir}/manifest.tsv
     [[ -f ${manifest} ]] ||
@@ -171,6 +206,14 @@ select_rpms() {
 # Build the fixture image unless one with the same inputs already exists. The
 # tag is keyed on the base image reference, which carries its digest, and on
 # the Containerfile's bytes.
+#
+# ensure_fixture_image: build or reuse the fixture image, setting
+# fixture_image.
+#
+# Sets the "fixture_image" global to a tag keyed on base_image and the
+# Containerfile's bytes, building it with Podman when no image with that
+# tag exists. Calls die, which exits the script, when base_image is not
+# pinned by digest or the build fails.
 ensure_fixture_image() {
     [[ ${base_image} == *@sha256:* ]] ||
         die "the base image must be pinned by digest, got ${base_image}"
@@ -196,6 +239,12 @@ ensure_fixture_image() {
     exec {lock_fd}>&-
 }
 
+# start_container: launch the fixture container as a private systemd.
+#
+# Starts the fixture_image container, detached, with --systemd=always,
+# --cgroupns=private and --user=0, bind-mounting work_dir at the same
+# path, and sets container_started=yes. Calls die, which exits the
+# script, if Podman cannot start it.
 start_container() {
     "${PODMAN}" run --detach \
         --name "${name}" \
@@ -213,6 +262,13 @@ start_container() {
 # systemd's manager answers; only then ask systemd to wait for boot to
 # finish. "running" is required. "degraded" is accepted only if every failed
 # unit is a named exception; anything else is a failure, as is a timeout.
+#
+# wait_for_boot: wait for the container's systemd to finish booting.
+#
+# Polls until systemd answers within EXEC_TIMEOUT seconds, confirms PID 1
+# is systemd, then waits up to BOOT_TIMEOUT seconds for it to reach
+# "running" (or "degraded" with only allow-listed failed units). Calls
+# die, which exits the script, on any other outcome or timeout.
 wait_for_boot() {
     local deadline=$((SECONDS + EXEC_TIMEOUT)) state
     while :; do
@@ -255,6 +311,15 @@ wait_for_boot() {
 
 # Show that Podman applied what was asked for, and record the confinement the
 # run actually had.
+#
+# verify_container: confirm the container's settings and record its
+# SELinux confinement.
+#
+# Checks the container's systemd mode, cgroup namespace, privilege, PID
+# namespace and user match what start_container requested, then writes
+# "confined" or "userspace_only" to work_dir/container-coverage depending
+# on whether it has an SELinux process label. Calls die, which exits the
+# script, on a mismatch or an unexpected process label domain.
 verify_container() {
     local settings
     settings=$("${PODMAN}" inspect "${name}" --format \
@@ -277,6 +342,12 @@ verify_container() {
     printf '%s\n' "${coverage}" >"${work_dir}/container-coverage"
 }
 
+# run_plan: run the container plan against the started fixture.
+#
+# Runs tmt's discover, provision (adopting the started container), prepare,
+# execute and report steps for PLAN, passing the staged RPM directories and
+# target as environment variables. Finish and cleanup are left out; this
+# script owns the container. Returns tmt's exit status.
 run_plan() {
     local -a environment=(
         --environment "GM_RPM_DIR=${work_dir}/rpms"
@@ -294,6 +365,11 @@ run_plan() {
         plan --name "^${PLAN}\$"
 }
 
+# write_evidence: record the acceptance evidence for a successful run.
+#
+# Writes EVIDENCE_DIR/container-<target>.txt, summarising the tier, base
+# and fixture images, SELinux coverage and tested packages. Always
+# returns 0.
 write_evidence() {
     mkdir -p "${EVIDENCE_DIR}"
     local evidence=${EVIDENCE_DIR}/container-${target}.txt

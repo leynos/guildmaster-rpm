@@ -25,16 +25,23 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 : "${SOURCE_COMMIT:=$(git -C "${repo_root}" rev-parse HEAD)}"
 
 problems=0
+# problem <message>: report a cross-check failure.
+#
+# Prints "release-evidence: <message>" to stderr and increments the shared
+# "problems" counter. Always returns 0.
 problem() {
     echo "release-evidence: $*" >&2
     problems=$((problems + 1))
 }
 
+# field <file> <name>: print the value of a "<name>: " field in <file>.
 field() {
     sed -n "s/^$2: //p" "$1" | head -n 1
 }
 
 # The "rpms:" block of an evidence file, normalized for comparison.
+#
+# evidence_rpms <file>: print the sorted "rpms:" block of an evidence file.
 evidence_rpms() {
     sed -n '/^rpms:$/,/^[a-z_]*:/{/^  /p}' "$1" | sed 's/^  //' | LC_ALL=C sort
 }

@@ -31,6 +31,10 @@ out=$2
 : "${TARGETS:=rocky-10 fedora-43}"
 : "${ARCH:=x86_64}"
 
+# die <message>: report a fatal error and abort.
+#
+# Prints "verify-release: <message>" to stderr and exits the script with
+# status 1.
 die() {
     echo "verify-release: $*" >&2
     exit 1

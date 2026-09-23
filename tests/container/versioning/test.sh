@@ -9,6 +9,8 @@
 set -uo pipefail
 . ../../lib/common.sh
 
+# vercmp <a> <b>: RPM's own version comparison of <a> against <b>, returning
+# -1, 0 or 1 as rpm.vercmp does.
 vercmp() {
     rpm --eval "%{lua: print(rpm.vercmp('$1', '$2'))}"
 }

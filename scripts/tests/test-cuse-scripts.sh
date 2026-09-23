@@ -19,20 +19,26 @@ passed=0
 failed=0
 current=
 
+# ok <message>: record a passing check for the current test.
 ok() {
     passed=$((passed + 1))
     echo "ok: ${current}: $*"
 }
 
+# not_ok <message>: record a failing check for the current test.
 not_ok() {
     failed=$((failed + 1))
     echo "FAIL: ${current}: $*" >&2
 }
 
+# assert_status <actual> <expected>: pass or fail on whether the two exit
+# statuses match.
 assert_status() {
     if [[ $1 -eq $2 ]]; then ok "exit status $2"; else not_ok "exit status $1, expected $2"; fi
 }
 
+# assert_contains <file> <needle> <message>: pass when <file> contains
+# <needle>; otherwise fail and dump the file for diagnosis.
 assert_contains() {
     if grep -qF -- "$2" "$1"; then ok "$3"; else
         not_ok "$3 (no '$2' in $1)"
@@ -40,6 +46,8 @@ assert_contains() {
     fi
 }
 
+# assert_lacks <file> <needle> <message>: pass when <file> does not contain
+# <needle>.
 assert_lacks() {
     if grep -qF -- "$2" "$1"; then not_ok "$3 (found '$2' in $1)"; else ok "$3"; fi
 }
@@ -120,6 +128,8 @@ chmod +x "${stub_dir}"/*
 
 # --- cuse-image.sh -----------------------------------------------------------
 
+# new_image_scenario <name>: a pinned image and a matching remote download;
+# tests then break one thing.
 new_image_scenario() {
     current=$1
     SCENARIO=${scratch}/${current}
@@ -132,6 +142,9 @@ new_image_scenario() {
     : >"${SCENARIO}/curl.log"
 }
 
+# run_image [extra env assignments...]: run cuse-image.sh against the
+# current scenario; output in ${SCENARIO}/stdout and .../stderr, status in
+# $status.
 run_image() {
     status=0
     env CURL="${stub_dir}/curl" IMAGES_TSV="${SCENARIO}/images.tsv" \
@@ -192,6 +205,8 @@ assert_contains "${SCENARIO}/stderr" 'no image is pinned for rocky-10 on aarch64
 
 # --- cuse-guest.sh -----------------------------------------------------------
 
+# new_guest_scenario <name>: a verified guest image and a valid package
+# directory; tests then break one thing.
 new_guest_scenario() {
     current=$1
     SCENARIO=${scratch}/${current}
@@ -216,6 +231,8 @@ new_guest_scenario() {
     echo 'not part of the build' >"${SCENARIO}/rpms/stray-file.rpm"
 }
 
+# run_guest [extra env assignments...]: run cuse-guest.sh against the
+# current scenario; output in ${SCENARIO}/out, status in $status.
 run_guest() {
     status=0
     env TMT="${stub_dir}/tmt" VIRSH="${stub_dir}/virsh" QEMU_IMG="${stub_dir}/qemu-img" \
@@ -224,10 +241,13 @@ run_guest() {
         "${guest_script}" rocky-10 "${SCENARIO}/rpms" >"${SCENARIO}/out" 2>&1 || status=$?
 }
 
+# run_id: the tmt run id the adapter logged for the current scenario, read
+# back from its output.
 run_id() {
     sed -n 's/.*run=\(gm-cuse-[^ ]*\).*/\1/p' "${SCENARIO}/out" | head -n 1
 }
 
+# assert_own_cleanup: pass when tmt was asked to clean up this run's own id.
 assert_own_cleanup() {
     if grep -q -- "--id $(run_id) cleanup" "${SCENARIO}/tmt.log"; then
         ok 'tmt is asked to clean up this run id'

@@ -50,35 +50,42 @@ trap 'rm -rf "${workdir}"' EXIT
 
 # --- harness ----------------------------------------------------------------
 
+# fail <message>: record a failing check and increment tests_failed.
 fail() {
     echo "  FAIL: $*" >&2
     tests_failed=$((tests_failed + 1))
 }
 
+# start <name>: announce and count the start of a new test case.
 start() {
     current_test=$1
     tests_run=$((tests_run + 1))
     echo "- ${current_test}"
 }
 
+# assert_eq <expected> <actual> <what>: fail unless the two values match.
 assert_eq() {
     local expected=$1 actual=$2 what=$3
     [[ ${expected} == "${actual}" ]] ||
         fail "${what}: expected '${expected}', got '${actual}'"
 }
 
+# assert_file <path> <what>: fail unless <path> exists as a regular file.
 assert_file() {
     [[ -f $1 ]] || fail "$2: expected file '$1' to exist"
 }
 
+# assert_no_file <path> <what>: fail if <path> exists at all.
 assert_no_file() {
     [[ ! -e $1 ]] || fail "$2: expected '$1' not to exist"
 }
 
+# assert_contains <file> <needle> <what>: fail unless <file> contains <needle>.
 assert_contains() {
     grep -qF -- "$2" "$1" || fail "$3: '$1' does not contain '$2'"
 }
 
+# assert_not_contains <file> <needle> <what>: fail if <file> contains <needle>.
 assert_not_contains() {
     grep -qF -- "$2" "$1" && fail "$3: '$1' unexpectedly contains '$2'"
     return 0
@@ -493,6 +500,7 @@ log_field() {
         tr ' ' '\n' | sed -n "s/^${key}=//p" | head -1
 }
 
+# has_event <file> <event>: true when a build_event record for <event> exists.
 has_event() {
     grep -qE "^build_event event=$2( |\$)" "$1"
 }
@@ -501,6 +509,7 @@ has_event() {
 
 target=fedora-43
 
+# out_dir <case_dir>: the target's published output directory for a case.
 out_dir() {
     echo "$1/${target}"
 }
@@ -522,6 +531,7 @@ case_env() {
         "STAGING_ROOT=${case_dir}/.staging"
 }
 
+# prepare_case <case_dir>: create a case's directories and reset its logs.
 prepare_case() {
     local case_dir=$1
     mkdir -p "${case_dir}" "${case_dir}/podman-state/containers" \
@@ -576,6 +586,7 @@ start_build_bg() {
     bg_pid=$!
 }
 
+# curl_calls <case_dir>: number of curl invocations logged for a case.
 curl_calls() {
     grep -c . "$1/curl.log" || true
 }
@@ -585,10 +596,12 @@ podman_call() {
     sed -n "$2p" "$1/podman.log"
 }
 
+# podman_calls <case_dir>: number of podman invocations logged for a case.
 podman_calls() {
     grep -c . "$1/podman.log" || true
 }
 
+# stray_temps <case_dir>: names of any leftover tarball temporary files.
 stray_temps() {
     find "$1/cache" -maxdepth 1 -name "${tarball}.??????" \
         -printf '%f\n' 2>/dev/null || true
@@ -605,11 +618,13 @@ live_containers() {
         LC_ALL=C sort || true
 }
 
+# live_images <case_dir>: names of the images the stub still knows about.
 live_images() {
     find "$1/podman-state/images" -mindepth 1 -printf '%f\n' 2>/dev/null |
         LC_ALL=C sort || true
 }
 
+# cached_tarball <case_dir>: path of the cached upstream tarball for a case.
 cached_tarball() {
     echo "$1/cache/${tarball}"
 }
@@ -628,6 +643,7 @@ set_in_dir() {
     )
 }
 
+# published_set <case_dir>: the package set currently published for a case.
 published_set() {
     set_in_dir "$(out_dir "$1")"
 }
@@ -638,11 +654,15 @@ previous_dirs() {
         -printf '%f\n' 2>/dev/null || true
 }
 
+# staging_excluding_previous <case_dir>: this invocation's own staging
+# entries, i.e. everything under .staging that is not recovery data.
 staging_excluding_previous() {
     find "$1/.staging" -mindepth 1 -maxdepth 1 ! -name '*.previous' \
         -printf '%f\n' 2>/dev/null || true
 }
 
+# complete_set_for <tag>: the expected "<file>:<tag>" lines of one complete
+# package generation tagged <tag>, sorted.
 complete_set_for() {
     local tag=$1
     printf '%s\n' \
@@ -653,6 +673,8 @@ complete_set_for() {
         LC_ALL=C sort
 }
 
+# assert_published_set <case_dir> <tag> <what>: fail unless the published
+# directory holds exactly one complete generation tagged <tag>.
 assert_published_set() {
     local case_dir=$1 tag=$2 what=$3
     local actual expected
@@ -900,6 +922,9 @@ assert_contains "${c}/podman.log" "localhost/guildmaster-build:${build_id}" \
 
 # --- cases: a failure in each phase -----------------------------------------
 
+# phase_failure_case <phase> <marker>: prime a good publication, then fail
+# <phase> and assert the previous complete set, an empty staging area, only
+# the foreign container/image, and free locks all survive.
 phase_failure_case() {
     local phase=$1 marker=$2
     local c="${workdir}/fail-${phase}"
@@ -1306,6 +1331,8 @@ assert_locks_free "${c}" 'after a failed rollback'
 
 # --- cases: clean ------------------------------------------------------------
 
+# clean_race_case: publish a set, then race scripts/clean.sh against a
+# second build to check clean waits for it and keeps the lock directory.
 clean_race_case() {
     local c="${workdir}/clean-race"
     prepare_case "${c}"

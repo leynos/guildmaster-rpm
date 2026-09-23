@@ -17,12 +17,19 @@ fi
 gm=$1
 failures=0
 
+# fail <message>: report a check failure.
+#
+# Prints "FAIL: <message>" to stderr and increments the shared "failures"
+# counter. Always returns 0.
 fail() {
     echo "FAIL: $*" >&2
     failures=$((failures + 1))
 }
 
-# expect_rejected <description> <args...>
+# expect_rejected <description> <args...>: assert guildmaster rejects <args>.
+#
+# Runs guildmaster with <args> and calls fail when it does not exit 2 with an
+# "invalid --tokens value" diagnostic and no capacity line. Always returns 0.
 expect_rejected() {
     local description=$1 status=0 output
     shift
@@ -38,7 +45,12 @@ expect_rejected() {
     fi
 }
 
-# expect_capacity <description> <expected> <args...>
+# expect_capacity <description> <expected> <args...>: assert the selected
+# token pool capacity.
+#
+# Runs guildmaster with <args> and calls fail unless it exits 1 (no
+# /dev/cuse) with a "token pool capacity <expected>" line in its output.
+# Always returns 0.
 expect_capacity() {
     local description=$1 expected=$2 status=0 output
     shift 2

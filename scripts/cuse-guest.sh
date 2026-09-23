@@ -78,6 +78,11 @@ run_dir=${WORK_ROOT}/${run_id}
 provisioned=no
 succeeded=no
 
+# log_event <event> [field...]: print a structured "guest_event" log line.
+#
+# Writes "guest_event event=<event> target=<target> run=<run_id>
+# elapsed_seconds=<SECONDS>" to stdout, followed by each extra field
+# (already "key=value" formatted) space-separated. Always returns 0.
 log_event() {
     local event=$1
     shift
@@ -90,6 +95,10 @@ log_event() {
     printf '\n'
 }
 
+# die <message>: log a failure and abort the script.
+#
+# Logs a guest_failed event with <message> as its detail, prints
+# "$0: <message>" to stderr, then exits the script with status 1.
 die() {
     log_event guest_failed "detail=\"$*\""
     echo "$0: $*" >&2
@@ -101,6 +110,12 @@ die() {
 # "provision --hardware" options: tmt 1.78 saves a command-line
 # cpu.processors constraint in a form it cannot load again, which breaks
 # every later invocation on the same run, including cleanup.
+#
+# tmt_run <tmt-subcommand...>: run tmt for this guest's run id.
+#
+# Invokes tmt with the repository root, this run's distro/memory/CPU
+# context, and the shared run id, passing through the given tmt
+# subcommand and arguments. Returns tmt's exit status.
 tmt_run() {
     TMT_WORKDIR_ROOT=${WORK_ROOT} "${TMT}" --root "${repo_root}" \
         --context "distro=${target}" \
@@ -111,6 +126,14 @@ tmt_run() {
 
 # Last resort when tmt cannot clean up its own run: remove the one libvirt
 # domain and testcloud instance directory that tmt recorded for this run id.
+#
+# destroy_own_guest: destroy this run's guest without tmt's help.
+#
+# Reads the instance name from the run's guests.yaml, destroys and
+# undefines the matching libvirt domain, and removes its testcloud
+# instance directory. Returns 1 without changing anything when no
+# tmt-owned instance name can be found; otherwise returns 0 once the
+# domain is confirmed gone, or non-zero if it is still present.
 destroy_own_guest() {
     local instance
     instance=$(sed -n 's/^ *instance-name: *//p' \
@@ -123,6 +146,13 @@ destroy_own_guest() {
     ! "${VIRSH}" --connect qemu:///session dominfo "${instance}" >/dev/null 2>&1
 }
 
+# cleanup: destroy this run's guest and reclaim its run directory.
+#
+# Invoked from the EXIT, INT and TERM traps. When a guest was provisioned,
+# asks tmt to clean it up, falling back to destroy_own_guest, and logs the
+# outcome; forces the exit status to 1 if cleanup fails and nothing else
+# already failed. Removes run_dir unless the run failed or KEEP_WORKDIR is
+# set. Exits the script with the original (or forced) status.
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -154,12 +184,21 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# checksum_of <file>: print the SHA-256 checksum of <file>.
 checksum_of() {
     "${SHA256SUM}" <"$1" | cut -d' ' -f1
 }
 
 # Copy the packages into the plan's data directory, checking each against
 # the manifest, as systemd-fixture.sh does.
+#
+# stage_rpms <data-dir>: stage the packages under test into <data-dir>.
+#
+# Copies every file listed in rpm_dir/manifest.tsv into <data-dir>/rpms,
+# verifying each against its manifest checksum, and copies the manifest and
+# check-tokens-option.sh alongside them. Also stages the upgrade fixture,
+# via stage_upgrade_rpms, when UPGRADE_RPM_DIR is set. Calls die, which
+# exits the script, on any missing file or checksum mismatch.
 stage_rpms() {
     local manifest=${rpm_dir}/manifest.tsv data_dir=$1
     [[ -f ${manifest} ]] ||
@@ -185,6 +224,13 @@ stage_rpms() {
 
 # The upgrade fixture has no manifest; each copy is checked against the file
 # it was copied from, and its checksum is logged and recorded as evidence.
+#
+# stage_upgrade_rpms <data-dir>: stage the upgrade fixture into <data-dir>.
+#
+# Copies every RPM from UPGRADE_RPM_DIR into <data-dir>/upgrade, verifying
+# each copy against its source file and recording its checksum in
+# <data-dir>/upgrade.sha256. Calls die, which exits the script, when
+# UPGRADE_RPM_DIR holds no RPMs or a copy does not match its source.
 stage_upgrade_rpms() {
     local data_dir=$1 source_dir=${UPGRADE_RPM_DIR} package staged sha256
     [[ ${source_dir} == /* ]] || source_dir=${repo_root}/${source_dir}
@@ -210,6 +256,13 @@ stage_upgrade_rpms() {
 # Show, rather than assume, that the guest's disk is an overlay whose backing
 # file is the verified image. testcloud keeps each instance's disk in its
 # store under the instance name tmt recorded for this run.
+#
+# verify_overlay: confirm the guest disk overlays the verified base image.
+#
+# Reads the testcloud instance name from the run's guests.yaml, locates its
+# qcow2 disk and inspects its backing file, accepting it when it resolves
+# to the verified image or, failing that, matches its checksum. Calls die,
+# which exits the script, on any other outcome.
 verify_overlay() {
     local instance disk backing
     instance=$(sed -n 's/^ *instance-name: *//p' \
@@ -231,6 +284,11 @@ verify_overlay() {
     log_event overlay_verified "instance=${instance}" "backing=${backing}"
 }
 
+# write_evidence: record the acceptance evidence for a successful run.
+#
+# Writes EVIDENCE_DIR/cuse-<target>-<EVIDENCE_KIND>.txt, summarising the
+# tier, image, guest resources, tested packages, and (when present) the
+# upgrade fixture and guest facts. Always returns 0.
 write_evidence() {
     mkdir -p "${EVIDENCE_DIR}"
     local evidence=${EVIDENCE_DIR}/cuse-${target}-${EVIDENCE_KIND}.txt

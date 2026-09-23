@@ -128,6 +128,12 @@ build_id="$$-${RANDOM}"
 
 # One structured diagnostic record. Extra arguments are appended verbatim and
 # are expected to be key=value.
+#
+# log_event <event> [field...]: print a structured "build_event" log line.
+#
+# Writes "build_event event=<event> target=<target_name>
+# build_id=<build_id> elapsed_seconds=<SECONDS>" followed by each extra
+# field, space-separated. Always returns 0.
 log_event() {
     local event=$1
     shift
@@ -142,11 +148,20 @@ log_event() {
 
 # Strip anything secret-bearing out of text captured from another command
 # before it is logged: URL userinfo, and query strings.
+#
+# redact_secrets: strip credentials and query strings from stdin.
+#
+# Filters stdin to stdout, replacing any userinfo before an "@" in a URL
+# with "REDACTED" and any query string with "?REDACTED".
 redact_secrets() {
     sed -E -e 's#([a-zA-Z][a-zA-Z0-9+.-]*://)[^/[:space:]]*@#\1REDACTED@#g' \
         -e 's#\?[^[:space:]]*#?REDACTED#g'
 }
 
+# die <message>: log a failure and abort the script.
+#
+# Logs a build_failed event with <message> as its detail, prints
+# "$0: <message>" to stderr, then exits the script with status 1.
 die() {
     log_event build_failed "detail=\"$*\""
     echo "$0: $*" >&2
@@ -155,6 +170,11 @@ die() {
 
 # A staged set that may not be published. Every rejection is reported the same
 # way, so a CI log can be filtered on one event.
+#
+# reject <message>: log a validation failure and abort via die.
+#
+# Logs a validation_failed event with <message> as its detail, then calls
+# die, which exits the script with status 1.
 reject() {
     log_event validation_failed "detail=\"$*\""
     die "$*"
@@ -171,6 +191,10 @@ reject() {
 #
 # The container and image are named after build_id, so nothing belonging to a
 # concurrent build or to an unrelated project can be removed here.
+#
+# cleanup: remove this invocation's scratch, logging what it removed.
+#
+# Always returns 0. Invoked from the EXIT, INT and TERM traps.
 cleanup() {
     local removed_download=no removed_staging=no
     local removed_container=no removed_image=no
@@ -211,6 +235,12 @@ trap 'cleanup; exit 143' TERM
 # Resolve the dist tag this target must produce. An unrecognized target is an
 # error rather than a guess, because publishing a package built for the wrong
 # distribution under a target's name is worse than not publishing at all.
+#
+# resolve_expected_dist: set EXPECTED_DIST for the current target.
+#
+# Defaults EXPECTED_DIST from target_name unless already set, and logs it.
+# Calls die, which exits the script, when the target is unknown and
+# EXPECTED_DIST was not overridden.
 resolve_expected_dist() {
     local default_dist=
     case ${target_name} in
@@ -227,6 +257,11 @@ resolve_expected_dist() {
 # commit. If they drift apart the build would silently produce a package whose
 # version claims one snapshot and whose sources are another, so this is
 # checked before anything is downloaded or built.
+#
+# check_spec_commit: confirm the spec's %global commit matches COMMIT.
+#
+# Reads the commit pinned in spec_file and calls die, which exits the
+# script, unless it is present and equal to the commit this script pins.
 check_spec_commit() {
     [[ -f ${spec_file} ]] || die "the spec file ${spec_file} does not exist"
     local spec_commit
@@ -242,6 +277,11 @@ check_spec_commit() {
 
 # Take the activity lock shared, for the lifetime of this process. Any number
 # of builds may hold it at once; scripts/clean.sh waits for all of them.
+#
+# acquire_activity_lock: take the shared activity lock and log it.
+#
+# Creates LOCK_DIR if needed, blocks until a shared lock on activity.lock
+# is held, and logs activity_lock_acquired. Always returns 0.
 acquire_activity_lock() {
     mkdir -p "${LOCK_DIR}"
     exec {activity_fd}>"${LOCK_DIR}/activity.lock"
@@ -250,6 +290,11 @@ acquire_activity_lock() {
 }
 
 # True when $1 exists and matches the expected checksum.
+#
+# checksum_matches <file>: test whether <file> matches tarball_sha256.
+#
+# Returns 1 when <file> does not exist; otherwise returns SHA256SUM's
+# status for verifying <file> against tarball_sha256.
 checksum_matches() {
     [[ -f $1 ]] || return 1
     echo "${tarball_sha256}  $1" | "${SHA256SUM}" -c --status -
@@ -267,6 +312,13 @@ checksum_matches() {
 # final name. Reuse is gated on the checksum rather than on mere presence,
 # so a file left behind by an interrupted run is re-fetched instead of
 # failing the build.
+#
+# fetch_tarball: populate the cache with the verified upstream tarball.
+#
+# Downloads tarball_url to a temporary file and publishes it into
+# cache_dir under a single rename when checksum_matches disagrees with the
+# cached copy; otherwise reuses the cached copy. Calls die, which exits
+# the script, on a download or checksum failure.
 fetch_tarball() {
     mkdir -p "${cache_dir}"
 
@@ -296,6 +348,11 @@ fetch_tarball() {
 # The read-only mounts shared by every phase: the spec, the packaging sources,
 # the patches and the verified tarball. The RPM's SOURCES are exactly the
 # tarball plus every file in packaging/ and patches/.
+#
+# source_mounts: print the "podman run" -v arguments shared by every phase.
+#
+# Prints, one per line, the -v arguments read-only mounting the spec file,
+# packaging directory, patches directory and cached tarball.
 source_mounts() {
     printf '%s\n' \
         -v "${spec_file}:/work/${spec_name}:ro,z" \
@@ -308,6 +365,13 @@ source_mounts() {
 # a named container, then commit it. This is the only phase that may reach the
 # network, and it is deliberately not --rm: its filesystem is the input to the
 # two offline phases that follow.
+#
+# build_phase_deps: install build dependencies and commit the environment.
+#
+# Runs deps_container from image, installing rpm-build, dnf-plugins-core
+# and the spec's build dependencies (enabling CRB on Rocky), then commits
+# the result to temp_image. Calls die, which exits the script, if either
+# step fails.
 build_phase_deps() {
     local -a mounts
     mapfile -t mounts < <(source_mounts)
@@ -344,6 +408,15 @@ build_phase_deps() {
 # Phase B. Build the packages offline from the committed environment, then
 # describe what was built in /out/manifest.tsv and refuse payload paths that
 # escape the permitted roots.
+#
+# build_phase_rpms: run rpmbuild -ba offline and write staging_dir's
+# manifest.
+#
+# Runs temp_image with --network=none, building the binary, debuginfo and
+# debugsource packages plus the SRPM into staging_dir, rejecting any
+# payload path outside the permitted roots, and writing manifest.tsv.
+# Calls die, which exits the script, on a build failure or an offending
+# payload path.
 build_phase_rpms() {
     local -a mounts
     mapfile -t mounts < <(source_mounts)
@@ -419,6 +492,12 @@ build_phase_rpms() {
 # Phase C. Rebuild the SRPM in a clean topdir, offline, and insist that it
 # yields the same package file names. A source RPM that cannot reproduce its
 # own binaries is not a publishable source RPM.
+#
+# build_phase_srpm_rebuild: rebuild the staged SRPM and compare its output.
+#
+# Runs temp_image with --network=none, rebuilding staging_dir's SRPM into a
+# clean topdir, and calls die, which exits the script, unless the rebuilt
+# package file names exactly match the originally built set.
 build_phase_srpm_rebuild() {
     log_event phase_rebuild_start
     # shellcheck disable=SC2016
@@ -455,6 +534,14 @@ build_phase_srpm_rebuild() {
 # Run the three phases against a staging directory owned by this invocation.
 # The published directory is deliberately not mounted: nothing outside this
 # script ever sees a half-populated output directory.
+#
+# build_in_container: run the three build phases into a fresh staging
+# directory.
+#
+# Creates staging_dir under STAGING_ROOT, names deps_container and
+# temp_image after build_id, runs build_phase_deps, build_phase_rpms and
+# build_phase_srpm_rebuild in order, then removes the container and image
+# on success. Each phase calls die, which exits the script, on failure.
 build_in_container() {
     mkdir -p "${STAGING_ROOT}"
     staging_dir=$(mktemp -d "${STAGING_ROOT}/${target_name}.XXXXXX")
@@ -486,6 +573,14 @@ expected_rpms=()
 
 # Check that manifest.tsv describes exactly the packages that were built,
 # with no epoch and a checksum that matches each file's bytes.
+#
+# validate_manifest: verify staging_dir/manifest.tsv against expected_rpms.
+#
+# Checks every manifest.tsv line for well-formed fields, no epoch, a file
+# name that matches its recorded name/version/release/arch, and a
+# checksum that matches the file's bytes; then checks the listed set is
+# unique and equals expected_rpms. Calls reject, which exits the script,
+# on any mismatch.
 validate_manifest() {
     local manifest="${staging_dir}/manifest.tsv"
     local lineno=0 line rel name epoch version release arch sum extra
@@ -539,6 +634,15 @@ validate_manifest() {
 # produced only some of its packages, or produced something extra, must leave
 # the previous output in place rather than replace it with something the tmt
 # plans and the release job would then treat as the build's full result.
+#
+# validate_staging: confirm staging_dir holds exactly one publishable set.
+#
+# Derives the expected package names from the single binary package's
+# name/version/release/arch, checks the arch and dist tag against
+# EXPECTED_ARCH/EXPECTED_DIST and the version against short_commit, sets
+# expected_entries and expected_rpms, and checks staging_dir's contents
+# against them before calling validate_manifest. Calls die or reject,
+# which exit the script, on any mismatch.
 validate_staging() {
     local -a entries=()
     mapfile -t entries < <(find "${staging_dir}" -mindepth 1 -printf '%P\n' |
@@ -639,6 +743,15 @@ validate_staging() {
 # place and the build exits non-zero. If the rollback itself fails, the build
 # still exits non-zero and the previous complete output is left at
 # <staging>.previous, which cleanup deliberately does not remove.
+#
+# publish_staging: publish staging_dir as outdir_path under an exclusive
+# lock.
+#
+# Takes the per-target publish lock, then either renames staging_dir into
+# place (first publication), exchanges it with outdir_path atomically, or
+# falls back to a move-aside-then-move-in sequence with rollback on
+# failure. Calls die, which exits the script, if the fallback promotion
+# and its rollback both fail.
 publish_staging() {
     local published_fd previous fallback_reason
     mkdir -p "${LOCK_DIR}" "$(dirname "${outdir_path}")"
@@ -700,6 +813,12 @@ publish_staging() {
 # so scripts/tests/test-build-rpm.sh can hold two builds of the same target
 # at exactly this point and then release them into the publication lock
 # together.
+#
+# prepublish_barrier: test seam pausing just before the publication lock.
+#
+# Returns 0 immediately unless PREPUBLISH_ANNOUNCE_FIFO is set; otherwise
+# writes to it, then blocks reading PREPUBLISH_WAIT_FIFO (if set) before
+# returning 0.
 prepublish_barrier() {
     [[ -n ${PREPUBLISH_ANNOUNCE_FIFO:-} ]] || return 0
     echo staged >"${PREPUBLISH_ANNOUNCE_FIFO}"

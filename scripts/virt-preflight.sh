@@ -29,6 +29,12 @@ set -euo pipefail
 
 failures=0
 
+# record <check> <status> [field...]: print a "preflight_event" log line.
+#
+# Writes "preflight_event check=<check> status=<status>" followed by each
+# extra field (already "key=value" formatted) space-separated, and
+# increments the shared "failures" counter when <status> is "fail".
+# Always returns 0.
 record() {
     local check=$1 status=$2
     shift 2
@@ -85,6 +91,10 @@ else
     record kvm_domains fail 'detail="libvirt does not offer KVM domains in this session; only emulation is available"'
 fi
 
+# free_mib <path>: print the free space in MiB on <path>'s filesystem.
+#
+# Walks up from <path> to the nearest existing ancestor directory and
+# prints df's available space, in mebibytes, for it.
 free_mib() {
     local dir=$1
     while [[ ! -d ${dir} ]]; do dir=$(dirname "${dir}"); done

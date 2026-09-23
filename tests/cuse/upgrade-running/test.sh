@@ -10,6 +10,8 @@ upgrade_rpm=$(find "${GM_UPGRADE_RPM_DIR:?}" -maxdepth 1 -name "guildmaster-[0-9
 systemctl reset-failed guildmaster.service 2>/dev/null || true
 
 coproc HOLDER { runuser -u gm-member -- python3 ../accounting/gmclient.py; }
+# say <command>: send one command to the held client and read its answer
+# into ${answer}.
 say() {
     echo "$1" >&"${HOLDER[1]}"
     read -r -t 20 -u "${HOLDER[0]}" answer

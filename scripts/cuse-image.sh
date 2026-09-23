@@ -45,6 +45,12 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 
 download_tmp=
 
+# log_event <event> [field...]: print a structured "image_event" log line
+# to stderr.
+#
+# Writes "image_event event=<event> target=<target>" followed by each
+# extra field (already "key=value" formatted) space-separated. Always
+# returns 0.
 log_event() {
     local event=$1
     shift
@@ -56,12 +62,20 @@ log_event() {
     printf '\n' >&2
 }
 
+# die <message>: log a failure and abort the script.
+#
+# Logs an image_failed event with <message> as its detail, prints
+# "$0: <message>" to stderr, then exits the script with status 1.
 die() {
     log_event image_failed "detail=\"$*\""
     echo "$0: $*" >&2
     exit 1
 }
 
+# cleanup: remove an in-progress download's temporary file, if any.
+#
+# Reads the "download_tmp" global and removes it when set and present.
+# Always returns 0. Invoked from the EXIT, INT and TERM traps.
 cleanup() {
     if [[ -n ${download_tmp} && -e ${download_tmp} ]]; then
         rm -f "${download_tmp}"
@@ -72,6 +86,10 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+# redact_secrets: strip credentials and query strings from stdin.
+#
+# Filters stdin to stdout, replacing any userinfo before an "@" in a URL
+# with "REDACTED" and any query string with "?REDACTED".
 redact_secrets() {
     sed -E -e 's#([a-zA-Z][a-zA-Z0-9+.-]*://)[^/[:space:]]*@#\1REDACTED@#g' \
         -e 's#\?[^[:space:]]*#?REDACTED#g'
@@ -89,6 +107,10 @@ image_url=${IMAGE_URL:-${image_url}}
 
 cached=${IMAGE_CACHE_DIR}/${image_sha256:0:16}-${image_name}
 
+# checksum_matches <file>: test whether <file> matches the pinned SHA-256.
+#
+# Returns 1 when <file> does not exist; otherwise returns SHA256SUM's
+# status for verifying <file> against image_sha256.
 checksum_matches() {
     [[ -f $1 ]] || return 1
     echo "${image_sha256}  $1" | "${SHA256SUM}" -c --status -
