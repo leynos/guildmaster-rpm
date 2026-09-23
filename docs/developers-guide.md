@@ -947,8 +947,8 @@ change, running `tmt` by hand against a guest kept alive between
 invocations gives much faster feedback, but such a reused guest is
 **never acceptance evidence** — only a freshly provisioned one is.
 
-Always give an explicit `--id` of your own choosing when doing this;
-never use `--last` on a host other agents or CI may also be using.
+Such a run always takes an explicit, unique `--id`; `--last` is never used on a
+host that other agents or CI may also be using.
 
 Provision a guest by hand:
 
@@ -959,19 +959,18 @@ tmt -c distro=rocky-10 -c guest_cpus=2 -c guest_memory_mib=2048 \
     --image "$(scripts/cuse-image.sh rocky-10)"
 ```
 
-Then, after copying packages into the plan's data directory by hand
-(see the environment variables below — this is normally done for you
-by `scripts/cuse-guest.sh`), iterate with:
+Then, once the packages have been copied into the plan's data directory by hand
+(see the environment variables below; `scripts/cuse-guest.sh` normally performs
+this set-up), a test iteration is:
 
 ```bash
 tmt -c distro=rocky-10 -c guest_cpus=2 -c guest_memory_mib=2048 \
     run --id my-dev-guest discover --force execute --force
 ```
 
-Destroy the guest when finished with `tmt run --id my-dev-guest
-cleanup` (or, as a fallback, remove the named libvirt domain
-directly, as `destroy_own_guest` does in
-`scripts/cuse-guest.sh`).
+The guest is destroyed afterwards with `tmt run --id my-dev-guest cleanup`, or,
+as a fallback, by removing the named libvirt domain directly, as
+`destroy_own_guest` does in `scripts/cuse-guest.sh`.
 
 ### Environment variables the CUSE tests read
 
@@ -986,11 +985,10 @@ _Table 5: environment variables read by the `tests/cuse/*` scripts._
 | `GM_TARGET` | `tests/container/install/test.sh` | Which target's dist tag to expect (`fedora-43` / `rocky-10`). |
 | `GM_MEMBER` | `tests/cuse/accounting/test_accounting.py` | The authorized test user to run clients as (defaults to `gm-member`). |
 
-When driving `tmt` by hand, these must be supplied on the command
-line (`tmt run --id ... execute --environment GM_RPM_DIR=...`, and so
-on) and the packages copied into
-`<run>/plans/cuse/data/rpms/` yourself, exactly as
-`scripts/cuse-guest.sh`'s `stage_rpms` function does.
+When `tmt` is driven by hand, these must be supplied on the command line (`tmt
+run --id ... execute --environment GM_RPM_DIR=...`, and so on), and the packages
+must be staged in `<run>/plans/cuse/data/rpms/` by hand, exactly as the
+`stage_rpms` function in `scripts/cuse-guest.sh` does.
 
 ______________________________________________________________________
 

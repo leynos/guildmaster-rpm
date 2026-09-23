@@ -6,14 +6,14 @@ anything; it explains the build, the two test tiers and their boundary.
 
 ## Ground rules
 
-- Never install or start guildmaster on the machine you are working on, and
+- Never install or start guildmaster on the development machine, and
   never change its device permissions, SELinux policy or cgroup settings to
   make a test pass. Packages are only ever installed in the disposable
   containers and guests the test targets create.
 - Never use rootful or privileged containers, the host's `/dev/cuse` or
   `/dev/guild`, or software emulation in place of KVM. A missing prerequisite
   is a failure to report, not something to work around.
-- Clean up only what your own invocation created. Containers, guests and run
+- Clean up only what the current invocation created. Containers, guests and run
   directories carry unique names for that reason.
 - Tests must not repair the installed package. Operator actions that the
   users' guide documents are allowed and must be labelled as such.
@@ -46,4 +46,4 @@ without conventional-commit prefixes.
 The upstream commit, the container base images, the guest images and the
 GitHub Actions are all pinned by immutable identifiers with recorded
 checksums or digests. The developers' guide gives the procedure for moving
-each pin. Never take a checksum from the bytes you have just downloaded.
+each pin. Never take a checksum from bytes that have just been downloaded.

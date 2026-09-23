@@ -42,12 +42,12 @@ jobs:
       - name: Lint
         run: |
           set -o pipefail
-          make lint 2>&1 | tee lint.log
+          make lint 2>&1 | tee "${RUNNER_TEMP}/lint.log"
 
       - name: Offline script tests and bounded model check
         run: |
           set -o pipefail
-          make unit 2>&1 | tee unit.log
+          make unit 2>&1 | tee "${RUNNER_TEMP}/unit.log"
 
       - name: Upload logs on failure
         if: failure()
@@ -55,8 +55,8 @@ jobs:
         with:
           name: logs-lint-and-unit
           path: |
-            lint.log
-            unit.log
+            ${{ runner.temp }}/lint.log
+            ${{ runner.temp }}/unit.log
           if-no-files-found: ignore
 
   container:
@@ -81,7 +81,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -o pipefail
-          make "test-${TARGET}" 2>&1 | tee "test-${TARGET}.log"
+          make "test-${TARGET}" 2>&1 | tee "${RUNNER_TEMP}/test-${TARGET}.log"
 
       - name: Upload diagnostics on failure
         if: failure()
@@ -90,7 +90,7 @@ jobs:
           name: diagnostics-container-${{ matrix.target }}
           path: |
             /var/tmp/tmt/gm-fx-*
-            test-${{ matrix.target }}.log
+            ${{ runner.temp }}/test-${{ matrix.target }}.log
           if-no-files-found: ignore
 
       - name: Upload packages

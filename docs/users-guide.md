@@ -15,7 +15,7 @@ command under that jobserver.
 Be clear about the limits before relying on it:
 
 - Installing guildmaster does not constrain Cargo, or anything else, by
-  itself. Only programmes that speak the jobserver protocol and are told to
+  itself. Only programs that speak the jobserver protocol and are told to
   use `/dev/guild` take part, for example GNU Make or Ninja started through
   `gm-run`. `leynos/dev-env-rocky` supplies the later, transparent
   integration for coding agents; it is not part of this package.
@@ -158,7 +158,7 @@ sudo usermod --append --groups guild alice
 Never add client users to the `guildmaster` group. Access to `/dev/cuse`
 allows the creation of arbitrary character devices. Note that the package
 changes the group of `/dev/cuse` for the whole host; any other CUSE
-programme must run as root or under an account in `guildmaster`.
+program must run as root or under an account in `guildmaster`.
 
 ## Use
 
@@ -204,7 +204,7 @@ is only used after the next restart, whose timing is the operator's decision.
 ## Restart precautions
 
 Restarting guildmaster removes `/dev/guild` and creates a new, full pool.
-Programmes that had the old device open keep dead handles: they can neither
+Programs that had the old device open keep dead handles: they can neither
 take nor return tokens, and they are not counted against the new pool. A
 restart while builds are running means those builds carry on outside the
 limit until they finish.

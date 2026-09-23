@@ -394,13 +394,16 @@ documented; `flock(1)`, `renameat2` and `mv --exchange` behave as
 documented; tmt/testcloud create a fresh copy-on-write overlay per run
 (this one is checked, not assumed — see INV-OVERLAY).
 
-- Obligation INV-TOKENS: `--tokens N` accepts exactly decimal integers in
-  `1..=ULLONG_MAX`-safe range chosen by the patch (`1..=INT_MAX`), rejects
-  everything else with a diagnostic and non-zero exit before opening
-  `/dev/cuse`, and leaves behaviour unchanged when omitted.
+- Obligation INV-TOKENS: `--tokens N` and `--tokens=N` accept exactly the
+  decimal integers `1..=ULLONG_MAX`, reject every other value, including
+  larger ones and a trailing `--tokens` with no value, with a diagnostic and
+  exit status 2 before opening `/dev/cuse`, and leave behaviour unchanged
+  when omitted.
   Method: parameterized test over the boundary partition (`0`, `-1`, `1`,
-  `2`, `INT_MAX`, `INT_MAX+1`, `99999999999999999999`, `2x`, empty, `+2`,
-  and a value with leading whitespace), run in `%check` and in the container tier.
+  `2`, `ULLONG_MAX` = `18446744073709551615`, `ULLONG_MAX+1`, a far
+  out-of-range value, `2x`, empty, missing, `+2`, hexadecimal, a fraction and
+  a value with leading whitespace), run in `%check`, in the container tier
+  and, as an unprivileged user, in the guest tier.
   Non-vacuity: parsing happens before the device is opened, so the test
   distinguishes "rejected: bad value" from "failed: no /dev/cuse" by
   message; a seeded fault (accepting `0`) must fail the test.
@@ -474,7 +477,7 @@ lint gates, CI, review and release.
   overlays on both distributions, including the reboot/module-autoload
   scenario and upgrade/drain/removal.
 - EP-M6: `README.md`, `docs/users-guide.md`, `docs/developers-guide.md`,
-  `docs/adr-001-system-unit-and-device-policy.md`, `CHANGELOG.md`,
+  `docs/adr-001-system-service-and-device-policy.md`, `CHANGELOG.md`,
   `AGENTS.md`; `make lint` covering shellcheck, shfmt, actionlint, `tmt
   lint`, markdownlint, nixie, ruff/ty for Python, rpmlint where available.
 - EP-M7: `.github/workflows/ci.yml`, `acceptance.yml`, `release.yml`;

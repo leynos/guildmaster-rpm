@@ -32,6 +32,10 @@ runs:
         sudo loginctl enable-linger "$(id -un)"
         echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
 
+    # testcloud and the libvirt bindings live in pipx's tmt environment,
+    # which the system python3 cannot import from.
     - name: Preflight
       shell: bash
-      run: scripts/virt-preflight.sh
+      run: |
+        PYTHON="$(dirname "$(readlink -f "$(command -v tmt)")")/python" \
+          scripts/virt-preflight.sh

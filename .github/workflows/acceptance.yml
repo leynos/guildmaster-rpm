@@ -46,7 +46,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -o pipefail
-          make "test-cuse-${TARGET}" 2>&1 | tee "test-cuse-${TARGET}.log"
+          make "test-cuse-${TARGET}" 2>&1 | tee "${RUNNER_TEMP}/test-cuse-${TARGET}.log"
 
       - name: Upload evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -63,5 +63,5 @@ jobs:
           path: |
             /var/tmp/tmt/gm-cuse-*
             !/var/tmp/tmt/gm-cuse-*/**/id_ecdsa*
-            test-cuse-${{ matrix.target }}.log
+            ${{ runner.temp }}/test-cuse-${{ matrix.target }}.log
           if-no-files-found: ignore

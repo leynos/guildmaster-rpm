@@ -23,9 +23,9 @@ the others.
 ## Decision 1: a disabled system unit under an unprivileged account
 
 In the context of a machine-wide device that every build on the host shares,
-facing the choice between a system unit and per-user units, we decided for a
-single system unit, `guildmaster.service`, to achieve exactly one token pool
-per machine, accepting that an operator with root must activate it.
+facing the choice between a system unit and per-user units, a single system
+unit, `guildmaster.service`, was chosen to achieve exactly one token pool per
+machine, accepting that an operator with root must activate it.
 
 The daemon runs as the system account `guildmaster`, created by
 `sysusers.d`. It needs no privilege beyond opening `/dev/cuse`: libfuse's
@@ -55,8 +55,8 @@ admission supervisor in `dev-env-rocky`.
 ## Decision 2: two groups and package-owned udev rules
 
 In the context of two devices with different audiences, facing upstream's
-world-writable node and a root-only `/dev/cuse`, we decided for two groups
-and one package-owned rules file, to achieve separation of daemon and client
+world-writable node and a root-only `/dev/cuse`, two groups and one
+package-owned rules file were chosen to achieve separation of daemon and client
 permissions, accepting that the package changes the group of the shared
 `/dev/cuse` node.
 
@@ -91,10 +91,10 @@ never disables or weakens SELinux.
 
 ## Decision 3: containers for userspace, guests for CUSE
 
-In the context of needing both fast package checks and proof of real
-operation, facing the fact that a container shares its host's kernel and
-devices, we decided for two test tiers with a strict boundary, to achieve
-honest evidence, accepting a slower release gate.
+In the context of needing both fast package checks and proof of real operation,
+facing the fact that a container shares its host's kernel and devices, two test
+tiers with a strict boundary were chosen to achieve honest evidence, accepting a
+slower release gate.
 
 Rootless Podman containers run each distribution's real systemd as PID 1.
 They test installation, the manifest, accounts, the installed production
@@ -115,10 +115,10 @@ and each run records which kind it was.
 
 ## Decision 4: a minimal downstream `--tokens` patch
 
-In the context of a consumer that needs capacity two, facing an upstream
-with a fixed capacity and no releases, we decided for one small patch adding
-`--tokens N`, to achieve explicit capacity, accepting the cost of carrying
-it until upstream offers an equivalent.
+In the context of a consumer that needs capacity two, facing an upstream with a
+fixed capacity and no releases, one small patch adding `--tokens N` was chosen
+to achieve explicit capacity, accepting the cost of carrying it until upstream
+offers an equivalent.
 
 The patch parses the option with libfuse's own option parser before anything
 else happens, so every other argument still reaches libfuse. It accepts only
