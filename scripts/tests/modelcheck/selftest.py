@@ -19,6 +19,7 @@ SELF_TEST_FAULTS = (
     ("leak_staging", "staging survived"),
     ("leak_container", "containers or images survived"),
     ("clean_ignores_lock", "clean removed state while an activity lock was held"),
+    ("release_unheld_lock", "critical section counter went negative"),
 )
 
 

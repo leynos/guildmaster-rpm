@@ -25,6 +25,12 @@ def _unwind_aborted_build(
     container and image dropped. Recovery data, if this build left any,
     deliberately survives.
 
+    The publication lock is only released if this build's own
+    ``publish_lock`` step already ran and its ``release_publish`` has not:
+    that is, only if this build actually holds the lock. Releasing another
+    build's lock, or a lock nobody holds, would corrupt the shared critical
+    section count.
+
     Parameters
     ----------
     state : ModelState
@@ -36,16 +42,19 @@ def _unwind_aborted_build(
     broken : str
         Injects a deliberate modelling fault, used by the self-test to show
         that this checker rejects a model that does not hold the
-        invariants.
+        invariants. ``"release_unheld_lock"`` reinstates the unguarded
+        release this function otherwise refuses to perform.
 
     Returns
     -------
     None
     """
+    took_lock = broken == "release_unheld_lock" or not any(
+        label == f"{who}:publish_lock" for label, _ in pending[who]
+    )
     for remaining_label, _ in pending[who]:
-        if remaining_label.endswith("release_publish"):
-            if state.publish_lock_held:
-                state.in_critical -= 1
+        if remaining_label.endswith("release_publish") and took_lock:
+            state.in_critical -= 1
             state.publish_lock_held = False
         if remaining_label.endswith("release_activity"):
             state.activity_holders -= 1
@@ -151,6 +160,8 @@ def _final_state_violations(state: ModelState) -> list[str]:
         found.append("publication lock still held at the end")
     if state.activity_holders != 0:
         found.append(f"activity lock still held: {state.activity_holders}")
+    if state.in_critical < 0:
+        found.append(f"critical section counter went negative: {state.in_critical}")
     return found
 
 

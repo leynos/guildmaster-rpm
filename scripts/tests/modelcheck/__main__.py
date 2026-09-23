@@ -66,7 +66,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _run_executed_cases(args: argparse.Namespace) -> int:
-    """Run the sampled executed scenarios; print progress and failures.
+    """Run the sampled executed scenarios, inside their own temp directory.
 
     Parameters
     ----------
@@ -105,7 +105,7 @@ def _run_executed_cases(args: argparse.Namespace) -> int:
             "(the shell code as written)"
         )
 
-        return _run_abstract_and_self_test(args)
+        return 0
 
 
 def _run_abstract_and_self_test(args: argparse.Namespace) -> int:
@@ -166,6 +166,10 @@ def main() -> int:
     print("model check: a bounded check, not a proof")
 
     status = _run_executed_cases(args)
+    if status != 0:
+        return status
+
+    status = _run_abstract_and_self_test(args)
     if status != 0:
         return status
 

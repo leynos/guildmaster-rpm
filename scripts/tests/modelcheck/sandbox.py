@@ -93,7 +93,11 @@ def classify(directory: Path) -> str:
 
 
 def lock_is_free(path: Path) -> bool:
-    """Check whether a lock file is uncontended.
+    """Check whether a lock file is uncontended, without altering it.
+
+    The probe opens the existing file read-only (``flock`` works on
+    read-only descriptors), so it neither creates nor truncates it, then
+    takes and releases a non-blocking exclusive lock.
 
     Parameters
     ----------
@@ -104,16 +108,20 @@ def lock_is_free(path: Path) -> bool:
     -------
     bool
         ``True`` if the path is absent or an exclusive, non-blocking lock on
-        it can be taken and released; ``False`` if another holder has it.
+        it can be taken and released; ``False`` if another holder has it
+        (``EWOULDBLOCK``/``EAGAIN``). Any other ``OSError`` propagates.
     """
     if not path.exists():
         return True
-    with open(path, "w") as handle:
+    fd = os.open(path, os.O_RDONLY)
+    try:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
             return False
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
     return True
 
 
