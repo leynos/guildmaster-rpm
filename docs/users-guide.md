@@ -4,7 +4,7 @@ This guide covers downloading, verifying, installing, activating,
 configuring, upgrading and removing the guildmaster RPMs on Rocky Linux 10
 and Fedora 43 (x86_64).
 
-## What you get, and what you do not
+## What the package provides, and what it does not
 
 `guildmaster` serves `/dev/guild`, one GNU Make jobserver for the whole
 machine. A client reads a byte to take a job token and writes it back when
@@ -45,19 +45,19 @@ cd guildmaster-rpms
 sha256sum --check SHA256SUMS
 ```
 
-`SHA256SUMS` lets you detect files that changed after the release was
+`SHA256SUMS` detects files that changed after the release was
 published, for example a corrupted download. It comes from the same place as
 the packages, so it is not an independent guarantee of authenticity, and it
 is not an RPM signature. The packages are unsigned. DNF will therefore ask
 for `--nogpgcheck` or report that the package is not signed, depending on
-your configuration.
+the local DNF configuration.
 
 ## Prerequisites
 
 guildmaster needs the `cuse` kernel module for the kernel that is running.
 On both distributions it is in `kernel-modules-extra`, which minimal and
 cloud installations leave out. The RPM cannot depend on "the module for the
-running kernel", so install it yourself:
+running kernel", so the operator installs it:
 
 ```bash
 sudo dnf install "kernel-modules-extra-$(uname -r)"
@@ -71,8 +71,8 @@ sudo dnf install kernel kernel-modules-extra
 sudo systemctl reboot
 ```
 
-Check with `modinfo cuse`. You do not need to load the module or arrange for
-it to load at boot; starting the service does that.
+`modinfo cuse` confirms it is present. There is no need to load the module
+or arrange for it to load at boot; starting the service does that.
 
 ## Install
 
@@ -92,15 +92,15 @@ the one runtime dependency, `fuse3-libs`.
 
 Installation creates the following and starts nothing.
 
-| Path                                          | Purpose                             |
-| --------------------------------------------- | ----------------------------------- |
-| `/usr/bin/guildmaster`                        | The daemon                          |
-| `/usr/bin/gm-run`                             | Runs a command under `/dev/guild`   |
-| `/usr/lib/systemd/system/guildmaster.service` | Vendor unit, disabled               |
-| `/etc/sysconfig/guildmaster`                  | Your configuration, kept on upgrade |
-| `/usr/lib/sysusers.d/guildmaster.conf`        | Account and groups                  |
-| `/usr/lib/udev/rules.d/70-guildmaster.rules`  | Device permissions                  |
-| `guildmaster(8)`, `gm-run(1)`                 | Manual pages                        |
+| Path                                          | Purpose                                 |
+| --------------------------------------------- | --------------------------------------- |
+| `/usr/bin/guildmaster`                        | The daemon                              |
+| `/usr/bin/gm-run`                             | Runs a command under `/dev/guild`       |
+| `/usr/lib/systemd/system/guildmaster.service` | Vendor unit, disabled                   |
+| `/etc/sysconfig/guildmaster`                  | Operator configuration, kept on upgrade |
+| `/usr/lib/sysusers.d/guildmaster.conf`        | Account and groups                      |
+| `/usr/lib/udev/rules.d/70-guildmaster.rules`  | Device permissions                      |
+| `guildmaster(8)`, `gm-run(1)`                 | Manual pages                            |
 
 _Table 1: What the package installs._
 
@@ -117,13 +117,14 @@ For two tokens:
 echo 'GUILDMASTER_OPTS="--tokens=2"' | sudo tee /etc/sysconfig/guildmaster
 ```
 
-This file is yours. Upgrades never replace it, and no vendor-owned file needs
-editing; this is the interface Ansible should use. The value takes effect
-the next time the service starts. `--tokens` accepts a positive decimal
-integer only. With anything else the daemon refuses to run: the unit ends up
-`failed` with exit status 2 and a message in the journal, and systemd does
-not retry. Because the unit is `Type=exec`, `systemctl start` itself may
-still report success in that case, so check the state afterwards.
+This file belongs to the operator. Upgrades never replace it, and no
+vendor-owned file needs editing; this is the interface Ansible should use. The
+value takes effect the next time the service starts. `--tokens` accepts a
+positive decimal integer only. With anything else the daemon refuses to run: the
+unit ends up `failed` with exit status 2 and a message in the journal, and
+systemd does not retry. Because the unit is `Type=exec`, `systemctl start`
+itself may still report success in that case, so the unit's state must be
+checked afterwards.
 
 ## Activate
 
@@ -198,14 +199,14 @@ Install the newer package the same way, with `dnf install` or
 `dnf upgrade ./…rpm`. An upgrade keeps `/etc/sysconfig/guildmaster`, keeps
 the service's enabled state, and deliberately does not restart a running
 daemon: the old process continues to serve its clients. The new executable
-is only used after the next restart, which you choose the time of.
+is only used after the next restart, whose timing is the operator's decision.
 
 ## Restart precautions
 
 Restarting guildmaster removes `/dev/guild` and creates a new, full pool.
 Programmes that had the old device open keep dead handles: they can neither
-take nor return tokens, and they are not counted against the new pool. If
-you restart while builds are running, those builds carry on outside the
+take nor return tokens, and they are not counted against the new pool. A
+restart while builds are running means those builds carry on outside the
 limit until they finish.
 
 The supported procedure is to drain first:
@@ -229,13 +230,13 @@ sudo dnf remove guildmaster
 ```
 
 Removal stops and disables the service and removes `/dev/guild`. A
-configuration file you edited is kept as `/etc/sysconfig/guildmaster.rpmsave`.
+configuration file that was edited is kept as `/etc/sysconfig/guildmaster.rpmsave`.
 The `guildmaster` account and both groups are left in place, as is usual for
 system accounts. `/dev/cuse` keeps its group until the module is reloaded or
 the host reboots.
 
 On Rocky Linux 10, RPM does not reload systemd when a package removes a unit
 file; this is true of every package there. `systemctl` may therefore still
-list `guildmaster.service` as loaded and inactive until you run
-`sudo systemctl daemon-reload` or reboot. On Fedora 43 the reload happens by
-itself.
+list `guildmaster.service` as loaded and inactive until
+`sudo systemctl daemon-reload` is run or the host reboots. On Fedora 43 the
+reload happens by itself.

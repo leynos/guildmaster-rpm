@@ -16,7 +16,8 @@ ______________________________________________________________________
 - **One pool per machine**: several coding agents building at once share one
   small set of job tokens, instead of each assuming it owns every core.
 - **Safe by default**: the daemon runs unprivileged, `/dev/guild` is limited
-  to the `guild` group, and nothing starts until you enable it.
+  to the `guild` group, and nothing starts until an operator enables
+  it.
 - **Configurable without forking files**: set the capacity in
   `/etc/sysconfig/guildmaster`; upgrades keep it and never restart the
   daemon underneath running builds.
@@ -86,7 +87,7 @@ Rootless Podman with cgroup v2 and the systemd cgroup manager, `tmt`, `make`
 and the lint tools for `make test`; additionally tmt's virtual provisioner,
 a libvirt user session and KVM for `make test-cuse`. The
 [developers' guide](docs/developers-guide.md) has the details, and the
-preflight scripts tell you precisely what is missing.
+preflight scripts report precisely what is missing.
 
 ```bash
 make rpms           # build both targets into dist/

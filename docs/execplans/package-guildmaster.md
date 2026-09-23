@@ -135,9 +135,11 @@ fresh-guest CUSE acceptance plan.
 - [x] (2026-09-21 20:20Z) EP-M6 documentation and lint gates.
 - [x] (2026-09-21 21:05Z) `make release-check` passed on a clean tree at
   `fb84046`; log and evidence kept in the session scratchpad.
-- [ ] EP-M7 CI, draft PR and review (completed: CI, acceptance and release
-  workflows, assembly and evidence scripts; remaining: offline tests for
-  those scripts (delegated), CodeRabbit review, draft PR, hosted runs).
+- [ ] EP-M7 CI, draft PR and review (completed: workflows, release-script
+  tests, draft PR #1, first hosted CI run 35648908683 green on
+  `ubuntu-24.04` with the rootless systemd preflight passing on Podman
+  4.9.3; remaining: CodeRabbit review and fixes, hosted CUSE tier, which
+  can only run once `acceptance.yml` is on `main`).
 - [ ] EP-M8 release and post-publication verification.
 
 ## Surprises & discoveries
@@ -248,6 +250,18 @@ fresh-guest CUSE acceptance plan.
 - Residual gap: phase B's in-container payload-path guard and manifest
   writer are exercised only by real builds, not by the offline suite. The
   host re-validates the manifest fully.
+
+- Observation: CodeRabbit's first review of the whole branch (2026-09-23)
+  reported 13 findings, none critical or high. All were actioned: the
+  staged `GM_TOKENS_CHECK` was not consumed by any guest test (now
+  `tests/cuse/capacity`, run as `nobody` so accepted values are exercised
+  without the daemon reaching the device); the world-accessible mode check
+  missed modes such as `0777`; the upgrade-fixture builder's Rocky
+  detection and CRB spelling differed from `build-rpm.sh`; a returning
+  `tmt-reboot` was not treated as an error; the release-script mutants
+  relied on line numbers; the users' guide used second-person wording; the
+  developers' guide had stale claims; and three model-check functions and
+  the guest client exceeded complexity limits, now enforced by `ruff.toml`.
 
 ## Decision log
 

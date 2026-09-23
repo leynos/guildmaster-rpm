@@ -77,7 +77,7 @@ _Table 1: top-level repository paths and their role._
 | `tests/lib/` | `common.sh`, helpers shared by every `tmt` test. |
 | `tests/container/` | Tests run in the rootless systemd container tier. |
 | `tests/cuse/` | Tests run in the fresh-guest CUSE acceptance tier. |
-| `docs/` | This guide, the ADR (Architecture Decision Record), and (planned) the user's guide. |
+| `docs/` | This guide, the users' guide, the ADR (Architecture Decision Record) and the ExecPlan. |
 | `Makefile` | Wires the scripts above into `make` targets; see throughout. |
 | `.build/` | Ignored. Tarball and image caches, locks and evidence; see [§7](#7-build-and-publication) and [§15](#15-evidence-files). |
 | `dist/` | Ignored. Published build output, one directory per target. |
@@ -234,7 +234,8 @@ This script exercises the option directly against a built
 (`bash %{SOURCE7} %{buildroot}%{_bindir}/guildmaster`). It is reused,
 unmodified, by `tests/container/capacity/test.sh` against the
 installed binary, and copied into the guest's data directory by
-`scripts/cuse-guest.sh` for `tests/cuse/preflight` and friends.
+`scripts/cuse-guest.sh`, which passes its path as `GM_TOKENS_CHECK` to
+`tests/cuse/capacity`.
 
 It always exercises the _rejected_ cases — every invalid value must
 fail with exit status 2 and the diagnostic text `invalid --tokens
@@ -259,10 +260,11 @@ in `%check`, that is never wanted. The accepted-value assertions
 therefore only run where they are safe: in the spec's `%check` and in
 the container tier, `/dev/cuse` never exists at all (see
 [Container fixture](#9-container-fixture)), so the full set of checks
-runs there. In a CUSE guest, where `/dev/cuse` _is_ real, this script
-is used only in `tests/cuse/preflight`, before the package has
-granted the `guildmaster` account access to it, so the process running
-the check still cannot open it.
+runs there. In a CUSE guest, where `/dev/cuse` _is_ real,
+`tests/cuse/capacity` runs the script against the installed daemon as
+the unprivileged user `nobody`, which the package's udev rule does not
+admit to `/dev/cuse`. The accepted-value cases therefore run there too,
+and the daemon still cannot open the device.
 
 ______________________________________________________________________
 
@@ -478,7 +480,7 @@ _Table 2: test tiers, what they run, and what they cover._
 
 | Tier | Entry point | Covers |
 | --- | --- | --- |
-| Offline script tests | `make unit` (`test-build-rpm.sh`, `test-systemd-fixture.sh`, `test-cuse-scripts.sh`) | The build, clean, fixture and guest wrapper scripts' own orchestration, validation and locking, against stub commands — no network, no container runtime, no `tmt`. |
+| Offline script tests | `make unit` (`test-build-rpm.sh`, `test-systemd-fixture.sh`, `test-cuse-scripts.sh`, `test-release-scripts.sh`) | The build, clean, fixture, guest wrapper and release scripts' own orchestration, validation and locking, against stub commands — no network, no container runtime, no `tmt`. |
 | Bounded model check | `make unit` (`model_check.py`) | A breadth sweep, executed and abstract, over the same build/publish/clean state space; see below. |
 | Rootless systemd container tier | `make test` | Distribution userspace: packaging, the installed unit, accounts, upgrade and removal, and the documented CUSE-missing failure. Runs against the _host_ kernel. |
 | Fresh-guest CUSE tier | `make test-cuse` | Real operation: activation, permissions, token accounting, `gm-run`, hardening, lifecycle, upgrade-while-running, reboot and removal, all with a real kernel, CUSE, udev and enforcing SELinux. |
@@ -507,7 +509,11 @@ stub `podman`, `tmt`, `curl`, `virsh` and `qemu-img` commands record
 their calls and answer from files in a per-test scenario directory,
 so the wrappers' own cache safety, input selection and verification,
 and cleanup ownership are tested without a real container runtime,
-`tmt`, network or libvirt. These say nothing about whether a real
+`tmt`, network or libvirt. `scripts/tests/test-release-scripts.sh`
+does the same for `scripts/assemble-release.sh` and
+`scripts/release-evidence.sh`: complete and incomplete package sets,
+tag and spec agreement, checksums, duplicate asset names and the
+evidence cross-check. These say nothing about whether a real
 host can boot the fixtures — `podman-preflight.sh`,
 `virt-preflight.sh` and the real `make test` / `make test-cuse` runs
 cover that.
@@ -972,8 +978,8 @@ _Table 5: environment variables read by the `tests/cuse/*` scripts._
 | --- | --- | --- |
 | `GM_RPM_DIR` | `tests/lib/common.sh` (`rpm_under_test`), most `tests/cuse/*` | Directory holding the built RPMs and `manifest.tsv`. |
 | `GM_UPGRADE_RPM_DIR` | `tests/cuse/upgrade-running`, `tests/container/upgrade` | The higher-release rebuild from `scripts/build-upgrade-fixture.sh`. |
-| `GM_TOKENS_CHECK` | (staged by `cuse-guest.sh`; consumed via a relative path from `tests/cuse/preflight`) | Path to the copied `check-tokens-option.sh`. |
-| `GM_GUEST_FACTS` | `tests/cuse/preflight/test.sh` | Where to write the recorded guest facts file. |
+| `GM_TOKENS_CHECK` | `tests/cuse/capacity/test.sh` | Path to the copied `check-tokens-option.sh`. |
+| `GM_GUEST_FACTS` | `tests/cuse/preflight/test.sh`, `tests/cuse/activation/test.sh` | Where to write the recorded guest facts file. |
 | `GM_TARGET` | `tests/container/install/test.sh` | Which target's dist tag to expect (`fedora-43` / `rocky-10`). |
 | `GM_MEMBER` | `tests/cuse/accounting/test_accounting.py` | The authorized test user to run clients as (defaults to `gm-member`). |
 
