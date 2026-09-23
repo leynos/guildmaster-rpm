@@ -306,7 +306,10 @@ write_evidence() {
         echo "guest_memory_mib: ${GUEST_MEMORY_MIB}"
         echo "guest_cpus: ${GUEST_CPUS}"
         echo "tmt_version: $("${TMT}" --version 2>&1 | head -n 1)"
-        "${PREFLIGHT}" | sed -n 's/^preflight_event check=\(virtual_provisioner\|libvirt_session\) status=ok /host_\1: /p'
+        # From the preflight at the start of the run: running it again now
+        # could fail on disk space the guest itself is using.
+        sed -n 's/^preflight_event check=\(virtual_provisioner\|libvirt_session\) status=ok /host_\1: /p' \
+            <<<"${preflight_report}"
         echo "rpms:"
         cut -f1,7 "${rpm_dir}/manifest.tsv" | sed 's/^/  /'
         if [[ -s ${data_dir}/upgrade.sha256 ]]; then
@@ -319,7 +322,9 @@ write_evidence() {
     log_event evidence_written "path=${evidence}"
 }
 
-"${PREFLIGHT}"
+# The report is kept for the evidence, and shown as it would have been.
+preflight_report=$("${PREFLIGHT}")
+printf '%s\n' "${preflight_report}"
 
 mkdir -p "${LOCK_DIR}"
 exec {activity_fd}>"${LOCK_DIR}/activity.lock"

@@ -363,6 +363,25 @@ assert_status "${status}" 1
 assert_contains "${SCENARIO}/out" 'holds no RPMs' 'an empty upgrade directory is refused'
 assert_lacks "${SCENARIO}/tmt.log" ' execute ' 'and no test is run'
 
+new_guest_scenario guest_preflight_runs_once
+cat >"${SCENARIO}/preflight" <<'STUB'
+#!/usr/bin/env bash
+# Passes the first time; a second run fails, as a disk-space check would once
+# the guest's overlay has grown.
+if [[ -e ${SCENARIO}/preflight.ran ]]; then
+    echo 'preflight_event check=disk_space status=fail' && exit 1
+fi
+touch "${SCENARIO}/preflight.ran"
+echo 'preflight_event check=virtual_provisioner status=ok testcloud=0.0-stub'
+echo 'preflight_event check=libvirt_session status=ok libvirt=0.0 qemu=0.0'
+STUB
+chmod +x "${SCENARIO}/preflight"
+run_guest PREFLIGHT="${SCENARIO}/preflight"
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
+    'host_virtual_provisioner: testcloud=0.0-stub' \
+    'host facts in the evidence come from the initial preflight'
+
 new_guest_scenario guest_cleanup_fallback
 touch "${SCENARIO}/cleanup_fails"
 run_guest
