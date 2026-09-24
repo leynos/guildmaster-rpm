@@ -72,6 +72,8 @@ def _check_i3_generation(
     ------
     CheckFailure
         If I3 does not hold.
+    InspectionError
+        If the recovery directory cannot be read.
     """
     if expect_success:
         if state != "complete:current":
@@ -113,6 +115,8 @@ def check_published_state(
     ------
     CheckFailure
         If I1, I3 or the owned-staging half of I4 does not hold.
+    InspectionError
+        If the published output or staging directory cannot be read.
     """
     state = classify(sandbox.out)
     owned, recovery = sandbox.staging_entries()
@@ -145,6 +149,9 @@ def check_invocation_residue(sandbox: Sandbox, pre_temps: set[str]) -> None:
     ------
     CheckFailure
         If any invocation-owned resource survived.
+    InspectionError
+        If the cache, podman stub state or lock directory cannot
+        be read.
     """
     leaked = sandbox.temp_tarballs() - pre_temps
     if leaked:
@@ -169,6 +176,8 @@ def check_clean_after(sandbox: Sandbox) -> None:
     CheckFailure
         If clean fails, or leaves the output, cache or lock directory in
         the wrong state.
+    InspectionError
+        If the published output cannot be read before clean runs.
     """
     before_state = classify(sandbox.out)
     clean_result = sandbox.run_clean()
@@ -268,6 +277,8 @@ def check_executed_case(
     ------
     CheckFailure
         If any invariant does not hold for this scenario.
+    InspectionError
+        If the sandbox's filesystem state cannot be read.
     """
     pre_temps = sandbox.seed_cache(str(case["cache"]))
 

@@ -628,6 +628,16 @@ counts are reproducible and overridable
 `MODEL_CHECK_EXECUTED`, `--schedules`/`MODEL_CHECK_SCHEDULES`); the
 seed is always printed and repeated alongside any failing case.
 
+Boundary checks run on every invocation as well. Repeating a schedule
+must give an identical result. Observing a lock through `/proc/locks`
+must leave the lock file and its holder untouched. A package directory
+that cannot be read or decoded must raise `InspectionError`.
+`InspectionError` is the single documented failure of the executed
+layer's filesystem queries (`classify` and the sandbox's listing and
+lock helpers). It means a case could not be observed, not that an
+invariant failed, and the command reports it separately before
+exiting non-zero.
+
 The fixed FIFO cases in `test-build-rpm.sh` remain regression tests
 for specific defects; the model check is a breadth sweep over their
 state space, not a replacement for them.

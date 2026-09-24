@@ -43,3 +43,14 @@ STUB_PLACEHOLDERS = (
 
 class CheckFailure(Exception):
     """An invariant did not hold for a generated case."""
+
+
+class InspectionError(Exception):
+    """The sandbox's filesystem state could not be read or decoded.
+
+    Raised by the executed layer's query helpers in
+    :mod:`.sandbox`, wrapping the underlying ``OSError`` or
+    ``UnicodeDecodeError``. It means the check could not observe a case,
+    not that an invariant failed, so :mod:`.__main__` reports it apart from
+    :class:`CheckFailure`.
+    """

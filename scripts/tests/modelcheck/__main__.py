@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import __doc__ as _PACKAGE_DOC
 from .boundaries import check_boundaries
-from .common import DEFAULT_SEED, CheckFailure
+from .common import DEFAULT_SEED, CheckFailure, InspectionError
 from .executed_cases import executed_cases
 from .executed_checks import check_executed_case
 from .sandbox import Sandbox, write_stubs
@@ -76,7 +76,8 @@ def _run_executed_cases(args: argparse.Namespace) -> int:
     Returns
     -------
     int
-        ``0`` on success, ``1`` if a scenario failed.
+        ``0`` on success, ``1`` if a scenario failed or its sandbox could
+        not be inspected.
     """
     rng = random.Random(args.seed)
     cases = executed_cases(rng, args.executed_cases)
@@ -97,6 +98,14 @@ def _run_executed_cases(args: argparse.Namespace) -> int:
             except (CheckFailure, subprocess.TimeoutExpired) as exc:
                 print(
                     f"FAIL executed case {index}: {case}\n  seed={args.seed}\n  {exc}",
+                    file=sys.stderr,
+                )
+                return 1
+            except InspectionError as exc:
+                # Not an invariant failure: the case could not be observed.
+                print(
+                    f"FAIL executed case {index} could not be inspected: {case}\n"
+                    f"  seed={args.seed}\n  {exc}",
                     file=sys.stderr,
                 )
                 return 1
@@ -153,6 +162,13 @@ def _run_abstract_and_self_test(args: argparse.Namespace) -> int:
         check_boundaries()
     except CheckFailure as exc:
         print(f"FAIL boundary checks:\n  seed={args.seed}\n  {exc}", file=sys.stderr)
+        return 1
+    except InspectionError as exc:
+        print(
+            f"FAIL boundary checks could not inspect their state:\n"
+            f"  seed={args.seed}\n  {exc}",
+            file=sys.stderr,
+        )
         return 1
     print("model check: boundary checks passed")
 

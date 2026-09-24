@@ -1,10 +1,12 @@
 """Boundary checks: repeated calls stay independent, queries stay read-only.
 
-Guards the two seams CodeRabbit's "Unit Architecture" review flagged:
+Guards the seams CodeRabbit's "Unit Architecture" review flagged:
 ``run_schedule`` must not depend on, or leave behind, any hidden mutable
-state, and ``lock_is_held_by_anyone`` must observe a lock without altering
-it. Both checks run on every ``model_check.py`` invocation, alongside the
-executed and abstract layers and the self-test; see ``modelcheck.__main__``.
+state; ``lock_is_held_by_anyone`` must observe a lock without altering it;
+and ``classify`` must report unreadable state as a documented
+``InspectionError`` rather than an arbitrary exception or a verdict. All
+three run on every ``model_check.py`` invocation, alongside the executed and
+abstract layers and the self-test; see ``modelcheck.__main__``.
 """
 
 from __future__ import annotations
@@ -15,8 +17,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .common import CheckFailure
-from .sandbox import lock_is_held_by_anyone
+from .common import COMPLETE, MANIFEST, CheckFailure, InspectionError
+from .sandbox import classify, lock_is_held_by_anyone
 from .schedule import run_schedule, schedule_space
 
 # Any fixed seed works here: this check only needs one reusable case, not
@@ -114,16 +116,56 @@ def _check_lock_observation_is_read_only() -> None:
             raise CheckFailure("lock file still reported held after release")
 
 
+def _check_unreadable_state_is_an_inspection_error() -> None:
+    """``classify`` must wrap a decode failure in ``InspectionError``.
+
+    Writes a complete package directory whose first package holds bytes
+    that are not UTF-8, so reading its generation tag fails.
+
+    Raises
+    ------
+    CheckFailure
+        If ``classify`` returns a classification instead of raising, or the
+        failure escapes as anything other than ``InspectionError``.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp) / "out"
+        for name in COMPLETE:
+            package = directory / name
+            package.parent.mkdir(parents=True, exist_ok=True)
+            package.write_text("current\n")
+        (directory / MANIFEST).write_text("manifest\n")
+        (directory / COMPLETE[0]).write_bytes(b"\xff\xfe not a tag\n")
+        try:
+            state = classify(directory)
+        except InspectionError as exc:
+            if not isinstance(exc.__cause__, UnicodeDecodeError):
+                raise CheckFailure(
+                    f"InspectionError does not carry the decode failure: {exc!r}"
+                ) from exc
+            return
+        # Deliberately broad: the check is that nothing else escapes.
+        except Exception as exc:
+            raise CheckFailure(
+                f"classify let {type(exc).__name__} escape instead of "
+                f"InspectionError: {exc}"
+            ) from exc
+        raise CheckFailure(f"classify returned {state!r} for an unreadable package")
+
+
 def check_boundaries() -> None:
     """Run every boundary check.
 
     Raises
     ------
     CheckFailure
-        If either boundary check fails.
+        If any boundary check fails.
+    InspectionError
+        If a boundary check's own state cannot be inspected.
     """
     _check_schedule_independence()
     _check_lock_observation_is_read_only()
+    _check_unreadable_state_is_an_inspection_error()
 
 
 __all__ = ["check_boundaries"]

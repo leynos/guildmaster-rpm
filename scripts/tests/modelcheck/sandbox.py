@@ -13,6 +13,8 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .common import (
@@ -24,7 +26,33 @@ from .common import (
     STUBS_DIR,
     TARBALL,
     TARGET,
+    InspectionError,
 )
+
+
+@contextmanager
+def _inspecting(what: str) -> Iterator[None]:
+    """Wrap filesystem read and decode failures in :class:`InspectionError`.
+
+    Parameters
+    ----------
+    what : str
+        A description of the state being inspected, for the error message.
+
+    Yields
+    ------
+    None
+        Control to the inspecting block.
+
+    Raises
+    ------
+    InspectionError
+        If the block raises ``OSError`` or ``UnicodeDecodeError``.
+    """
+    try:
+        yield
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InspectionError(f"cannot inspect {what}: {exc}") from exc
 
 
 def write_stubs(bindir: Path) -> None:
@@ -69,22 +97,32 @@ def classify(directory: Path) -> str:
         ``"absent"``, ``"partial"``, ``"mixed"``, or ``"complete:<tag>"``
         where ``<tag>`` is the shared generation tag written by the podman
         stub.
+
+    Raises
+    ------
+    InspectionError
+        If the directory or a package file in it cannot be read, or a
+        package file's generation tag is not valid UTF-8.
     """
-    if not directory.is_dir():
-        return "absent"
-    found: dict[str, str] = {}
-    for name in COMPLETE:
-        candidate = directory / name
-        if candidate.is_file():
-            found[name] = candidate.read_text().strip()
-    extra = {
-        str(p.relative_to(directory)) for p in directory.rglob("*.rpm") if p.is_file()
-    } - set(COMPLETE)
+    with _inspecting(f"package directory {directory}"):
+        if not directory.is_dir():
+            return "absent"
+        found: dict[str, str] = {}
+        for name in COMPLETE:
+            candidate = directory / name
+            if candidate.is_file():
+                found[name] = candidate.read_text().strip()
+        extra = {
+            str(p.relative_to(directory))
+            for p in directory.rglob("*.rpm")
+            if p.is_file()
+        } - set(COMPLETE)
+        has_manifest = (directory / MANIFEST).is_file()
     if extra:
         return "mixed"
     if not found:
         return "absent"
-    if len(found) != len(COMPLETE) or not (directory / MANIFEST).is_file():
+    if len(found) != len(COMPLETE) or not has_manifest:
         return "partial"
     tags = set(found.values())
     if len(tags) != 1:
@@ -121,17 +159,15 @@ def lock_is_held_by_anyone(path: Path) -> bool:
 
     Raises
     ------
-    OSError
-        If ``/proc/locks`` cannot be read.
+    InspectionError
+        If ``path`` cannot be stat'ed or ``/proc/locks`` cannot be read.
     """
-    if not path.exists():
-        return False
-    st = path.stat()
-    target = (os.major(st.st_dev), os.minor(st.st_dev), st.st_ino)
-    try:
+    with _inspecting(f"the lock state of {path} in /proc/locks"):
+        if not path.exists():
+            return False
+        st = path.stat()
         lines = Path("/proc/locks").read_text().splitlines()
-    except OSError as exc:
-        raise OSError(f"cannot read /proc/locks to observe {path}: {exc}") from exc
+    target = (os.major(st.st_dev), os.minor(st.st_dev), st.st_ino)
     for line in lines:
         if "->" in line:
             continue  # A blocked waiter's request, not a granted lock.
@@ -218,6 +254,11 @@ class Sandbox:
         set[str]
             The names of any temporary tarballs already present in the
             cache, for use as a pre-invocation baseline.
+
+        Raises
+        ------
+        InspectionError
+            If the cache directory cannot be listed afterwards.
         """
         self.cache.mkdir(parents=True, exist_ok=True)
         target = self.cache / TARBALL
@@ -237,10 +278,16 @@ class Sandbox:
         -------
         set[str]
             The names of files matching the temporary-download pattern.
+
+        Raises
+        ------
+        InspectionError
+            If the cache directory cannot be listed.
         """
-        if not self.cache.is_dir():
-            return set()
-        return {p.name for p in self.cache.glob(f"{TARBALL}.??????")}
+        with _inspecting(f"cache directory {self.cache}"):
+            if not self.cache.is_dir():
+                return set()
+            return {p.name for p in self.cache.glob(f"{TARBALL}.??????")}
 
     def staging_entries(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """List the staging directory's owned and recovery entries.
@@ -250,13 +297,18 @@ class Sandbox:
         tuple[tuple[str, ...], tuple[str, ...]]
             A pair of sorted name tuples: entries owned by the current
             invocation, and ``.previous`` recovery entries.
+
+        Raises
+        ------
+        InspectionError
+            If the staging directory cannot be listed.
         """
-        if not self.staging.is_dir():
-            return ((), ())
-        owned: list[str] = []
-        recovery: list[str] = []
-        for entry in self.staging.iterdir():
-            (recovery if entry.name.endswith(".previous") else owned).append(entry.name)
+        with _inspecting(f"staging directory {self.staging}"):
+            if not self.staging.is_dir():
+                return ((), ())
+            entries = [entry.name for entry in self.staging.iterdir()]
+        owned = [name for name in entries if not name.endswith(".previous")]
+        recovery = [name for name in entries if name.endswith(".previous")]
         return tuple(sorted(owned)), tuple(sorted(recovery))
 
     def container_residue(self) -> tuple[str, ...]:
@@ -266,12 +318,18 @@ class Sandbox:
         -------
         tuple[str, ...]
             Sorted ``"containers/<name>"`` and ``"images/<name>"`` entries.
+
+        Raises
+        ------
+        InspectionError
+            If the podman stub's state directories cannot be listed.
         """
         names: list[str] = []
-        for kind in ("containers", "images"):
-            directory = self.podman_state / kind
-            if directory.is_dir():
-                names.extend(f"{kind}/{p.name}" for p in directory.iterdir())
+        with _inspecting(f"podman stub state {self.podman_state}"):
+            for kind in ("containers", "images"):
+                directory = self.podman_state / kind
+                if directory.is_dir():
+                    names.extend(f"{kind}/{p.name}" for p in directory.iterdir())
         return tuple(sorted(names))
 
     def run_build(
@@ -336,8 +394,15 @@ class Sandbox:
         bool
             ``True`` if every ``*.lock`` file in the lock directory is
             uncontended.
+
+        Raises
+        ------
+        InspectionError
+            If the lock directory cannot be listed or a lock's state cannot
+            be observed.
         """
-        locks = self.locks.glob("*.lock") if self.locks.is_dir() else []
+        with _inspecting(f"lock directory {self.locks}"):
+            locks = list(self.locks.glob("*.lock")) if self.locks.is_dir() else []
         return not any(lock_is_held_by_anyone(p) for p in locks)
 
 
