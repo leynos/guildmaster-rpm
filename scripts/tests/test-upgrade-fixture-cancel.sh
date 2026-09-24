@@ -358,7 +358,19 @@ else not_ok 'podman was invoked again despite the fixture being restored and cur
 # On a host that supports "mv -T --exchange", the promotion swaps the two
 # directories directly. The publish-mv stub — used only on the fallback
 # path — must never be invoked, which is the suite's evidence that no
-# move-aside to ".old" ever happened.
+# move-aside to ".old" ever happened. GNU coreutils before 9.5 has no
+# --exchange (Ubuntu 24.04 ships 9.4), and there the script must take the
+# fallback instead; the scenario checks that, and says the exchange path
+# went unexercised on this host rather than counting it as tested.
+
+# exchange_supported: whether this host's mv can exchange two directories.
+exchange_supported() {
+    local probe=${scratch}/exchange-probe rc=0
+    mkdir -p "${probe}/a" "${probe}/b"
+    mv -T --exchange "${probe}/a" "${probe}/b" 2>/dev/null || rc=1
+    rm -rf "${probe}"
+    return "${rc}"
+}
 
 new_scenario upgrade_exchange_no_move_aside
 target=rocky-10
@@ -370,9 +382,16 @@ out_dir=$(out_dir_for rocky-10)
 add_srpm rocky-10 second
 run_upgrade PUBLISH_MV="${stub_dir}/publish-mv"
 assert_status "${status}" 0
-if [[ ! -s ${SCENARIO}/publish-mv.log ]]; then
-    ok 'the fallback promotion move is never invoked on the exchange path'
-else not_ok "the fallback promotion move was invoked: $(cat "${SCENARIO}/publish-mv.log")"; fi
+if exchange_supported; then
+    if [[ ! -s ${SCENARIO}/publish-mv.log ]]; then
+        ok 'the fallback promotion move is never invoked on the exchange path'
+    else not_ok "the fallback promotion move was invoked: $(cat "${SCENARIO}/publish-mv.log")"; fi
+else
+    echo "note: ${current}: this host's mv has no --exchange; the exchange path is not exercised here"
+    if grep -qF -- "-T" "${SCENARIO}/publish-mv.log"; then
+        ok 'without --exchange, the fallback promotion move is used'
+    else not_ok 'without --exchange, the fallback promotion move was not used'; fi
+fi
 if [[ ! -e ${out_dir}.old ]]; then
     ok 'no ".old" directory is created by the exchange path'
 else not_ok '".old" directory was created despite the exchange path succeeding'; fi
