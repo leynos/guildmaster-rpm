@@ -486,6 +486,25 @@ exec mv "$@"
 STUB
 chmod +x "${stub_bin}/publish-mv"
 
+# aside-mv stub: stands in for the fallback's move-aside of the previous
+# output. It performs the rename first and only then announces and blocks,
+# so a test can deliver a signal while the move-aside command is still
+# running but its rename has already completed — the window in which bash
+# defers the trap until the command returns.
+#
+#   ASIDE_MV_ANNOUNCE_FIFO  announce that the rename has completed
+#   ASIDE_MV_WAIT_FIFO      then block until the test writes to it
+cat >"${stub_bin}/aside-mv" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+mv "$@"
+if [[ -n ${ASIDE_MV_ANNOUNCE_FIFO:-} ]]; then
+    echo moved >"${ASIDE_MV_ANNOUNCE_FIFO}"
+    [[ -z ${ASIDE_MV_WAIT_FIFO:-} ]] || read -r _ <"${ASIDE_MV_WAIT_FIFO}"
+fi
+STUB
+chmod +x "${stub_bin}/aside-mv"
+
 # A non-interactive shell starts an asynchronous job with SIGINT and SIGQUIT
 # ignored, and an ignored disposition is inherited across exec and cannot be
 # trapped. A build launched with "&" would therefore be unable to install its
@@ -1532,6 +1551,51 @@ fallback_cancellation_case() {
 
 start 'a TERM-cancelled fallback build restores the previous output'
 fallback_cancellation_case
+
+# The same window opens during the move-aside itself: bash runs the TERM
+# trap only once the move-aside command returns, by which time its rename
+# has completed. The recovery marker must already be armed then, or cleanup
+# discards staging and leaves the output path absent.
+aside_cancellation_case() {
+    local c="${workdir}/build-cancel-aside"
+    prepare_case "${c}"
+    local rc
+    rc=$(run_build "${c}" PODMAN_STUB_TAG=good PUBLISH_EXCHANGE=never)
+    assert_eq 0 "${rc}" 'exit status priming a good publication'
+
+    local announce="${c}/aside-announce.fifo" wait_fifo="${c}/aside-wait.fifo"
+    mkfifo "${announce}" "${wait_fifo}"
+
+    prepare_case "${c}"
+    start_build_bg "${c}" "${c}/cancelled.out" \
+        PODMAN_STUB_TAG=doomed \
+        PUBLISH_EXCHANGE=never \
+        PUBLISH_ASIDE_MV="${stub_bin}/aside-mv" \
+        ASIDE_MV_ANNOUNCE_FIFO="${announce}" \
+        ASIDE_MV_WAIT_FIFO="${wait_fifo}"
+    local build_pid=${bg_pid}
+    fifo_read "${announce}" \
+        'build to announce the fallback move-aside renamed the output' \
+        "-${build_pid}" || return 1
+    # The rename has completed and the move-aside command is still running.
+    kill -TERM "-${build_pid}"
+    rc=0
+    wait "${build_pid}" || rc=$?
+
+    assert_eq 143 "${rc}" 'exit status of a fallback build cancelled mid-move-aside'
+    assert_published_set "${c}" good \
+        'the previous complete set is restored after cancellation'
+    assert_eq '' "$(previous_dirs "${c}")" \
+        'no .previous directory remains after a restored cancellation'
+    assert_eq '' "$(staging_excluding_previous "${c}")" \
+        'no staging directory remains after a restored cancellation'
+    has_event "${c}/cancelled.out" cancel_restored ||
+        fail 'no cancel_restored record'
+    assert_locks_free "${c}" 'after a restored cancellation'
+}
+
+start 'a build cancelled during the fallback move-aside restores the output'
+aside_cancellation_case
 
 # --- summary ----------------------------------------------------------------
 

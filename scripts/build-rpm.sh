@@ -88,6 +88,9 @@ target_name=$(basename "${outdir_path}")
 # promotion fails. Scoped this narrowly so a test stub cannot disturb the
 # unrelated renames in this script.
 : "${PUBLISH_MV:=mv}"
+# Used only for the fallback's move-aside of the previous output, so the
+# cancellation tests can hold that move open after its rename completes.
+: "${PUBLISH_ASIDE_MV:=mv}"
 
 # Injectable inputs.
 : "${COMMIT:=463382ba5b47625a9355832cd792a164c54237f9}"
@@ -766,12 +769,19 @@ validate_staging() {
 # Cancellation on the fallback path: if this process receives INT or TERM
 # after the previous output has been moved aside but before promotion (or
 # rollback) has completed, <outdir> is briefly absent. cleanup recognizes
-# this window via the fallback_previous global, set immediately after the
-# move-aside and cleared once promotion or rollback finishes on every
-# branch, and moves <staging>.previous back to <outdir> before exiting,
-# logging a cancel_restored event. If that restore itself fails, cleanup
-# leaves <staging>.previous in place — it never deletes it — and logs
+# this window via the fallback_previous global, and moves
+# <staging>.previous back to <outdir> before exiting, logging a
+# cancel_restored event. If that restore itself fails, cleanup leaves
+# <staging>.previous in place — it never deletes it — and logs
 # cancel_restore_failed instead.
+#
+# fallback_previous is armed immediately before the move-aside and cleared
+# once promotion or rollback finishes on every branch. Arming it first
+# matters: bash defers a trap until the running command returns, so a signal
+# delivered during the move-aside runs cleanup after the rename has
+# completed but before the next line could set the marker. An armed marker
+# is harmless if the move never happened, because cleanup restores only
+# when <outdir> is absent.
 #
 # publish_staging: publish staging_dir as outdir_path under an exclusive
 # lock.
@@ -811,12 +821,15 @@ publish_staging() {
     fi
 
     previous="${staging_dir}.previous"
-    mv -T "${outdir_path}" "${previous}" ||
-        die "could not move the previous output of ${target_name} aside"
-    # The output path is briefly absent from here until promotion (or
-    # rollback) completes. cleanup restores it from ${previous} if this
-    # process is cancelled inside that window.
+    # The output path is briefly absent from the move-aside until promotion
+    # (or rollback) completes. cleanup restores it from ${previous} if this
+    # process is cancelled inside that window, including during the
+    # move-aside itself, so the marker is armed before the move.
     fallback_previous="${previous}"
+    if ! "${PUBLISH_ASIDE_MV}" -T "${outdir_path}" "${previous}"; then
+        fallback_previous=
+        die "could not move the previous output of ${target_name} aside"
+    fi
 
     if "${PUBLISH_MV}" -T "${staging_dir}" "${outdir_path}"; then
         rm -rf "${previous}"

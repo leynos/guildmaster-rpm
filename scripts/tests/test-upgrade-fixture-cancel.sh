@@ -151,6 +151,25 @@ fi
 exec mv "$@"
 STUB
 
+# aside-mv stub: stands in for the fallback's move-aside
+# ("${PUBLISH_ASIDE_MV} -T <out_dir> <out_dir>.old"). It performs the rename
+# first and only then announces and blocks, so a test can deliver a signal
+# while the move-aside command is still running but its rename has already
+# completed — the window in which bash defers the trap until the command
+# returns.
+#
+#   ASIDE_MV_ANNOUNCE_FIFO  announce that the rename has completed
+#   ASIDE_MV_WAIT_FIFO      then block until the test writes to it
+cat >"${stub_dir}/aside-mv" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+mv "$@"
+if [[ -n ${ASIDE_MV_ANNOUNCE_FIFO:-} ]]; then
+    echo moved >"${ASIDE_MV_ANNOUNCE_FIFO}"
+    [[ -z ${ASIDE_MV_WAIT_FIFO:-} ]] || read -r _ <"${ASIDE_MV_WAIT_FIFO}"
+fi
+STUB
+
 # flock-announce: wraps the real flock. When invoked with "-x" it announces
 # the request on ${FLOCK_ANNOUNCE_FIFO} before executing the real flock.
 # Copied from test-upgrade-fixture.sh; unused by the cases in this suite but
@@ -300,7 +319,66 @@ if fifo_read "${announce}" \
     wait "${build_pid}" || rc=$?
     assert_status "${rc}" 143
 
-    after_listing=$(find "${out_dir}" -type f -printf '%f\n' 2>/dev/null | LC_ALL=C sort)
+    after_listing=$(find "${out_dir}" -type f -printf '%f\n' 2>/dev/null | LC_ALL=C sort || true)
+    after_sha=$(cat "${out_dir}/source.sha256" 2>/dev/null || true)
+    if [[ ${before_listing} == "${after_listing}" && ${before_sha} == "${after_sha}" ]]; then
+        ok 'the previous fixture is restored to out_dir, unchanged'
+    else not_ok 'the previous fixture at out_dir changed or is missing after cancellation'; fi
+    if [[ -z $(stray_staging rocky-10) ]]; then
+        ok 'no staging directory is left behind'
+    else not_ok "stray staging directory left: $(stray_staging rocky-10)"; fi
+    if [[ ! -e ${out_dir}.old ]]; then
+        ok 'no ".old" recovery directory remains'
+    else not_ok '".old" recovery directory was left behind'; fi
+    assert_contains "${SCENARIO}/cancelled.out" \
+        'restored the previous upgrade fixture' \
+        'the script reports the restoration'
+else
+    wait "${build_pid}" 2>/dev/null || true
+fi
+
+# --- cancellation: SIGTERM during the move-aside itself ----------------------
+#
+# The same window opens during the move-aside: bash runs the TERM trap only
+# once the move-aside command returns, by which time its rename has
+# completed. The aside-mv stub holds the command open after the rename, and
+# SIGTERM is sent then. The recovery marker must already be armed, so that
+# cleanup restores out_dir in this run rather than leaving it absent until a
+# later run's start-up recovery.
+
+new_scenario upgrade_cancel_mid_move_aside
+target=rocky-10
+add_srpm rocky-10 first
+run_upgrade PUBLISH_EXCHANGE=never
+assert_status "${status}" 0
+out_dir=$(out_dir_for rocky-10)
+before_listing=$(find "${out_dir}" -type f -printf '%f\n' | LC_ALL=C sort)
+before_sha=$(cat "${out_dir}/source.sha256")
+
+add_srpm rocky-10 second
+announce=${SCENARIO}/aside-announce.fifo
+wait_fifo=${SCENARIO}/aside-wait.fifo
+mkfifo "${announce}" "${wait_fifo}"
+
+start_upgrade_bg "${SCENARIO}/cancelled.out" \
+    PUBLISH_EXCHANGE=never \
+    PUBLISH_ASIDE_MV="${stub_dir}/aside-mv" \
+    ASIDE_MV_ANNOUNCE_FIFO="${announce}" \
+    ASIDE_MV_WAIT_FIFO="${wait_fifo}"
+build_pid=${bg_pid}
+
+if fifo_read "${announce}" \
+    'the build to announce the fallback move-aside renamed out_dir' \
+    "-${build_pid}"; then
+    if [[ ! -e ${out_dir} ]]; then
+        ok 'out_dir is absent while the move-aside command is held open'
+    else not_ok 'out_dir was not renamed before the move-aside announced'; fi
+    kill -TERM "-${build_pid}"
+    rc=0
+    wait "${build_pid}" || rc=$?
+    assert_status "${rc}" 143
+
+    after_listing=$(find "${out_dir}" -type f -printf '%f\n' 2>/dev/null | LC_ALL=C sort || true)
     after_sha=$(cat "${out_dir}/source.sha256" 2>/dev/null || true)
     if [[ ${before_listing} == "${after_listing}" && ${before_sha} == "${after_sha}" ]]; then
         ok 'the previous fixture is restored to out_dir, unchanged'
@@ -339,7 +417,7 @@ mv -T "${out_dir}" "${out_dir}.old"
 
 run_upgrade
 assert_status "${status}" 0
-after_listing=$(find "${out_dir}" -type f -printf '%f\n' 2>/dev/null | LC_ALL=C sort)
+after_listing=$(find "${out_dir}" -type f -printf '%f\n' 2>/dev/null | LC_ALL=C sort || true)
 after_sha=$(cat "${out_dir}/source.sha256" 2>/dev/null || true)
 if [[ ${before_listing} == "${after_listing}" && ${before_sha} == "${after_sha}" ]]; then
     ok 'the leftover fixture is restored and recognized as current'

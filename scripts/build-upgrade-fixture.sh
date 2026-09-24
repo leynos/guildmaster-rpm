@@ -42,6 +42,9 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 # any other rename in this script. See scripts/build-rpm.sh, which uses the
 # same seam for the same reason.
 : "${PUBLISH_MV:=mv}"
+# Used only for the fallback's move-aside of the previous fixture, so the
+# cancellation tests can hold that move open after its rename completes.
+: "${PUBLISH_ASIDE_MV:=mv}"
 # "never" forces the non-atomic fallback below; the unit tests use it to
 # cover both publication paths on any host.
 : "${PUBLISH_EXCHANGE:=auto}"
@@ -59,11 +62,15 @@ out_root=${CACHE_DIR}/upgrade-fixture
 out_dir=${out_root}/${target}
 old_dir=${out_dir}.old
 staging=
-# Set to old_dir once the fallback publish path has moved the previous
-# fixture aside, and cleared once promotion or rollback has completed on
-# every branch. Lets cleanup recognize a cancellation inside that window and
-# restore the previous fixture to out_dir rather than leaving it stranded at
-# old_dir, or leaving out_dir empty altogether.
+# Set to old_dir immediately before the fallback publish path moves the
+# previous fixture aside, and cleared once promotion or rollback has
+# completed on every branch. Lets cleanup recognize a cancellation inside
+# that window and restore the previous fixture to out_dir rather than
+# leaving it stranded at old_dir, or leaving out_dir empty altogether. It is
+# armed before the move because bash defers a trap until the running command
+# returns: a signal delivered during the move-aside runs cleanup after the
+# rename has completed. An armed marker is harmless if the move never
+# happened, because cleanup restores only when out_dir is absent.
 fallback_previous=
 
 # cleanup: remove the in-progress staging directory, and restore a fixture
@@ -169,11 +176,16 @@ elif [[ ${PUBLISH_EXCHANGE} != never ]] &&
     rm -rf "${staging}"
     staging=
 else
-    mv -T "${out_dir}" "${old_dir}"
-    # out_dir is briefly absent from here until promotion (or rollback)
-    # completes. cleanup restores it from old_dir if this process is
-    # cancelled inside that window.
+    # out_dir is briefly absent from the move-aside until promotion (or
+    # rollback) completes. cleanup restores it from old_dir if this process
+    # is cancelled inside that window, including during the move-aside
+    # itself, so the marker is armed before the move.
     fallback_previous=${old_dir}
+    if ! "${PUBLISH_ASIDE_MV}" -T "${out_dir}" "${old_dir}"; then
+        fallback_previous=
+        echo "$0: could not move the previous upgrade fixture for ${target} aside" >&2
+        exit 1
+    fi
 
     if "${PUBLISH_MV}" -T "${staging}" "${out_dir}"; then
         rm -rf "${old_dir}"

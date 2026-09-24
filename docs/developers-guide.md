@@ -443,10 +443,12 @@ complete output is preserved at `<staging>.previous` — which
 remaining copy of the last known-good output. The failure message
 names that path explicitly.
 
-Both of the fallback's moves go through a `PUBLISH_MV` seam
-(defaulting to `mv`), scoped narrowly to exactly these two moves, so
-a test stub can inject a failure into promotion or rollback alone
-without disturbing any other rename the script performs.
+Promotion and rollback go through a `PUBLISH_MV` seam (defaulting to
+`mv`), scoped narrowly to exactly these two moves, so a test stub can
+inject a failure into promotion or rollback alone without disturbing
+any other rename the script performs. The move-aside goes through its
+own `PUBLISH_ASIDE_MV` seam, so a test can hold that command open
+after its rename has completed and cancel the build there.
 
 ### Cancellation and cleanup
 
@@ -454,18 +456,35 @@ An `EXIT`/`INT`/`TERM` trap runs `cleanup`, which removes only this
 invocation's own scratch: a part-downloaded tarball, the invocation's
 staging directory, and the container and image it created (identified
 by `build_id`). It is idempotent, since the `INT` and `TERM` handlers
-fall through to the `EXIT` handler. `<staging>.previous` is never
-touched by `cleanup` for the reason given above. `scripts/clean.sh`
-similarly keeps `.build/locks/` on every run — removing a lock file
-while a process holds a lock on it would let a waiting process
-acquire a lock on the now-unlinked inode and proceed as though it had
-exclusive access. The guest image cache is outside the repository (see
-[§11](#11-cuse-guest-tier)), so `make clean` never touches it.
+fall through to the `EXIT` handler. `cleanup` never removes
+`<staging>.previous`, for the reason given above.
+
+A build cancelled on the fallback path while `<outdir>` is absent
+has its previous output restored instead: `cleanup` moves
+`<staging>.previous` back to `<outdir>` and logs a `cancel_restored`
+event, or leaves it in place and logs `cancel_restore_failed` if that
+move fails. The script arms this restore immediately **before** the
+move-aside, not after it. Bash runs a trap only once the running
+command returns, so a signal delivered during the move-aside reaches
+`cleanup` after the rename has completed, before any later line could
+record it. An armed restore is harmless when the move never happened,
+because `cleanup` acts only when `<outdir>` is absent.
+`scripts/build-upgrade-fixture.sh` follows the same ordering with its
+`<outdir>.old` directory, and also restores a leftover `.old` at the
+start of its next run.
+
+`scripts/clean.sh` keeps `.build/locks/` on every run: removing a
+lock file while a process holds a lock on it would let a waiting
+process acquire a lock on the now-unlinked inode and proceed as
+though it had exclusive access. The guest image cache is outside the
+repository (see [§11](#11-cuse-guest-tier)), so `make clean` never
+touches it.
 
 ### Injectable seams and diagnostics
 
 Every external command the script calls (`CURL`, `SHA256SUM`,
-`PODMAN`, `FLOCK`, and, narrowly, `PUBLISH_MV`) and every pinned or
+`PODMAN`, `FLOCK`, and, narrowly, `PUBLISH_MV` and `PUBLISH_ASIDE_MV`)
+and every pinned or
 configurable input (`COMMIT`, `TARBALL_URL`, `TARBALL_SHA256`,
 `SPEC_FILE`, `PACKAGING_DIR`, `PATCHES_DIR`, `CACHE_DIR`, `LOCK_DIR`,
 `STAGING_ROOT`, `PUBLISH_EXCHANGE`, `EXPECTED_ARCH`, `EXPECTED_DIST`)
