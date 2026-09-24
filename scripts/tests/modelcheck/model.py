@@ -1,10 +1,11 @@
 """Abstract layer: the transition system's observable state and step type.
 
 Defines ``ModelState``, the observable state the invariants talk about, the
-exceptions a step raises to signal contention or an aborted build, the
-``Step`` type alias, and ``REACHED``, the set of states the sweep must
-actually reach for a pass to mean anything. See ``modelcheck.__main__`` for
-how this fits with the executed layer.
+exceptions a step raises to signal contention or an aborted build, and the
+``Step`` type alias. ``ModelState.reached`` records the states the sweep
+must actually reach for a pass to mean anything; see
+``modelcheck.schedule.ScheduleResult`` for how it leaves the abstract layer.
+See ``modelcheck.__main__`` for how this fits with the executed layer.
 """
 
 from __future__ import annotations
@@ -28,6 +29,9 @@ class ModelState:
         self.images: set[str] = set()
         self.cleaned = False
         self.in_critical = 0
+        # States this schedule's steps have actually reached, used by the
+        # non-vacuity guard; see ``schedule.ScheduleResult``.
+        self.reached: set[str] = set()
 
 
 class _BuildAborted(Exception):
@@ -44,12 +48,8 @@ class _CleanBlocked(Exception):
 
 Step = tuple[str, Callable[[ModelState], None]]
 
-# States the sweep must actually reach for a pass to mean anything.
-REACHED: set[str] = set()
-
 
 __all__ = [
-    "REACHED",
     "ModelState",
     "Step",
 ]

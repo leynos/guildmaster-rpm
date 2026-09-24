@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from .model import (
-    REACHED,
     ModelState,
     Step,
     _BuildAborted,
@@ -145,7 +144,7 @@ def _publish_lock_and_publish_steps(name: str, scenario: dict[str, str]) -> list
     def take_publish_lock(state: ModelState) -> None:
         """Take the publication lock, or raise on contention."""
         if state.publish_lock_held:
-            REACHED.add("publication_contention")
+            state.reached.add("publication_contention")
             raise _LockContended
         state.publish_lock_held = True
         state.in_critical += 1
@@ -159,7 +158,7 @@ def _publish_lock_and_publish_steps(name: str, scenario: dict[str, str]) -> list
                 state.recovery[name] = state.published
                 state.published = None
                 state.publishing_fallback = True
-                REACHED.add("fallback_window")
+                state.reached.add("fallback_window")
 
     return [
         (f"{name}:publish_lock", take_publish_lock),
@@ -198,7 +197,7 @@ def _make_finish_publish(
             case "promotion_failure":
                 state.published = state.recovery.pop(name)  # rollback succeeds
             case _:  # rollback_failure: the previous set stays as recovery data
-                REACHED.add("retained_recovery")
+                state.reached.add("retained_recovery")
         state.publishing_fallback = False
         if scenario["publish"] == "rollback_failure":
             raise _BuildAborted

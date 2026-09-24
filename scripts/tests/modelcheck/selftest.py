@@ -51,8 +51,8 @@ def self_test(seed: int, schedules_per_case: int) -> int:
         for participants, order in schedule_space(
             random.Random(seed), schedules_per_case, broken=fault
         ):
-            violations = run_schedule(dict(participants), order, broken=fault)
-            if any(expected in violation for violation in violations):
+            result = run_schedule(dict(participants), order, broken=fault)
+            if any(expected in violation for violation in result.violations):
                 caught = True
                 break
         if not caught:

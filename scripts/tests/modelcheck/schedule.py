@@ -12,10 +12,44 @@ from __future__ import annotations
 import itertools
 import random
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from .common import CheckFailure
 from .model import ModelState, Step, _BuildAborted, _CleanBlocked, _LockContended
 from .steps import build_steps, clean_steps
+
+
+@dataclass(frozen=True)
+class ScheduleResult:
+    """The outcome of executing one sampled interleaving.
+
+    Attributes
+    ----------
+    violations : list[str]
+        Any invariant violations found while executing the schedule; empty
+        if the schedule held every invariant.
+    reached : frozenset[str]
+        The tracked states this schedule's steps actually reached.
+    """
+
+    violations: list[str]
+    reached: frozenset[str]
+
+
+@dataclass(frozen=True)
+class SweepResult:
+    """The outcome of sampling and checking the abstract schedule space.
+
+    Attributes
+    ----------
+    checked : int
+        The number of schedules checked.
+    reached : frozenset[str]
+        The union of every checked schedule's reached states.
+    """
+
+    checked: int
+    reached: frozenset[str]
 
 
 def _unwind_aborted_build(
@@ -167,8 +201,11 @@ def _final_state_violations(state: ModelState) -> list[str]:
 
 def run_schedule(
     participants: dict[str, list[Step]], order: list[str], *, broken: str = ""
-) -> list[str]:
-    """Execute one interleaving; return any invariant violations.
+) -> ScheduleResult:
+    """Execute one interleaving; return its violations and reached states.
+
+    Each call runs against a fresh ``ModelState``, so repeated calls with
+    the same inputs are independent: nothing carries over between them.
 
     Parameters
     ----------
@@ -184,9 +221,9 @@ def run_schedule(
 
     Returns
     -------
-    list[str]
-        Any violation messages found; empty if the schedule holds every
-        invariant.
+    ScheduleResult
+        Any violation messages found (empty if the schedule holds every
+        invariant), and the states this schedule's steps reached.
     """
     state = ModelState()
     pending = {name: list(steps) for name, steps in participants.items()}
@@ -226,7 +263,7 @@ def run_schedule(
         violations.append("participants could not finish: deadlock")
 
     violations.extend(_final_state_violations(state))
-    return violations
+    return ScheduleResult(violations=violations, reached=frozenset(state.reached))
 
 
 BUILD_OUTCOMES = (
@@ -295,8 +332,8 @@ def schedule_space(
     return space
 
 
-def abstract_cases(rng: random.Random, schedules_per_case: int) -> int:
-    """Sample interleavings of 0-2 builds and a clean; return cases checked.
+def abstract_cases(rng: random.Random, schedules_per_case: int) -> SweepResult:
+    """Sample interleavings of 0-2 builds and a clean; check every one.
 
     Parameters
     ----------
@@ -307,8 +344,9 @@ def abstract_cases(rng: random.Random, schedules_per_case: int) -> int:
 
     Returns
     -------
-    int
-        The number of schedules checked.
+    SweepResult
+        The number of schedules checked, and the union of every checked
+        schedule's reached states.
 
     Raises
     ------
@@ -316,20 +354,25 @@ def abstract_cases(rng: random.Random, schedules_per_case: int) -> int:
         If any sampled schedule violates an invariant.
     """
     checked = 0
+    reached: set[str] = set()
     for participants, order in schedule_space(rng, schedules_per_case):
-        violations = run_schedule(dict(participants), order)
+        result = run_schedule(dict(participants), order)
         checked += 1
-        if violations:
+        reached.update(result.reached)
+        if result.violations:
             raise CheckFailure(
                 "abstract schedule violated invariants: "
-                f"{violations}; participants={sorted(participants)}; order={order}"
+                f"{result.violations}; participants={sorted(participants)}; "
+                f"order={order}"
             )
-    return checked
+    return SweepResult(checked=checked, reached=frozenset(reached))
 
 
 __all__ = [
     "BUILD_OUTCOMES",
     "PUBLISH_MODES",
+    "ScheduleResult",
+    "SweepResult",
     "abstract_cases",
     "run_schedule",
     "schedule_space",

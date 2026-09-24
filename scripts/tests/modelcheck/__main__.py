@@ -18,10 +18,10 @@ import tempfile
 from pathlib import Path
 
 from . import __doc__ as _PACKAGE_DOC
+from .boundaries import check_boundaries
 from .common import DEFAULT_SEED, CheckFailure
 from .executed_cases import executed_cases
 from .executed_checks import check_executed_case
-from .model import REACHED
 from .sandbox import Sandbox, write_stubs
 from .schedule import abstract_cases
 from .selftest import self_test
@@ -109,7 +109,8 @@ def _run_executed_cases(args: argparse.Namespace) -> int:
 
 
 def _run_abstract_and_self_test(args: argparse.Namespace) -> int:
-    """Run the abstract sweep, the non-vacuity guard, then the self-test.
+    """Run the abstract sweep, the non-vacuity guard, the self-test and the
+    boundary checks.
 
     Parameters
     ----------
@@ -122,16 +123,16 @@ def _run_abstract_and_self_test(args: argparse.Namespace) -> int:
         ``0`` on success, ``1`` on the first failure encountered.
     """
     try:
-        schedules = abstract_cases(random.Random(args.seed), args.schedules)
+        sweep = abstract_cases(random.Random(args.seed), args.schedules)
     except CheckFailure as exc:
         print(f"FAIL abstract model:\n  seed={args.seed}\n  {exc}", file=sys.stderr)
         return 1
     print(
-        f"model check: {schedules} abstract schedules passed "
+        f"model check: {sweep.checked} abstract schedules passed "
         "(an abstract model, not the executed script)"
     )
 
-    missing = _REQUIRED_REACHED - REACHED
+    missing = _REQUIRED_REACHED - sweep.reached
     if missing:
         print(
             f"FAIL non-vacuity: the sweep never reached {sorted(missing)}\n"
@@ -139,7 +140,7 @@ def _run_abstract_and_self_test(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"model check: reached {sorted(REACHED)}")
+    print(f"model check: reached {sorted(sweep.reached)}")
 
     try:
         faults = self_test(args.seed, args.schedules)
@@ -147,6 +148,13 @@ def _run_abstract_and_self_test(args: argparse.Namespace) -> int:
         print(f"FAIL self-test:\n  seed={args.seed}\n  {exc}", file=sys.stderr)
         return 1
     print(f"model check: {faults} seeded model faults were all rejected")
+
+    try:
+        check_boundaries()
+    except CheckFailure as exc:
+        print(f"FAIL boundary checks:\n  seed={args.seed}\n  {exc}", file=sys.stderr)
+        return 1
+    print("model check: boundary checks passed")
 
     return 0
 

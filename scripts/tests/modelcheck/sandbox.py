@@ -9,8 +9,8 @@ select a cache state, container-phase outcome or publication mode. See
 
 from __future__ import annotations
 
-import fcntl
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -92,37 +92,56 @@ def classify(directory: Path) -> str:
     return f"complete:{tags.pop()}"
 
 
-def lock_is_free(path: Path) -> bool:
-    """Check whether a lock file is uncontended, without altering it.
+# Matches a "/proc/locks" device:inode field, e.g. "08:31:1642067801": the
+# device's major and minor numbers in hexadecimal, then the inode in
+# decimal, as emitted by the kernel's lock-reporting code in fs/locks.c.
+_PROC_LOCKS_DEVICE_INODE = re.compile(r"([0-9a-fA-F]+):([0-9a-fA-F]+):(\d+)")
 
-    The probe opens the existing file read-only (``flock`` works on
-    read-only descriptors), so it neither creates nor truncates it, then
-    takes and releases a non-blocking exclusive lock.
+
+def lock_is_held_by_anyone(path: Path) -> bool:
+    """Observe whether a lock file is currently held, without touching it.
+
+    This opens no file descriptor on ``path`` and takes no lock of its own:
+    it stats the file for its device and inode, then reads ``/proc/locks``
+    to see whether any process holds a ``flock`` or POSIX/OFD lock on that
+    same (device, inode) pair. Reading ``/proc/locks`` does not require
+    opening ``path`` itself, so this cannot change the file's content,
+    mtime, or any lock another process holds on it.
 
     Parameters
     ----------
     path : Path
-        The lock file to probe.
+        The lock file to observe.
 
     Returns
     -------
     bool
-        ``True`` if the path is absent or an exclusive, non-blocking lock on
-        it can be taken and released; ``False`` if another holder has it
-        (``EWOULDBLOCK``/``EAGAIN``). Any other ``OSError`` propagates.
+        ``True`` if the path exists and some process currently holds a
+        lock on it; ``False`` if the path is absent or unlocked.
+
+    Raises
+    ------
+    OSError
+        If ``/proc/locks`` cannot be read.
     """
     if not path.exists():
-        return True
-    fd = os.open(path, os.O_RDONLY)
+        return False
+    st = path.stat()
+    target = (os.major(st.st_dev), os.minor(st.st_dev), st.st_ino)
     try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return False
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        os.close(fd)
-    return True
+        lines = Path("/proc/locks").read_text().splitlines()
+    except OSError as exc:
+        raise OSError(f"cannot read /proc/locks to observe {path}: {exc}") from exc
+    for line in lines:
+        if "->" in line:
+            continue  # A blocked waiter's request, not a granted lock.
+        match = _PROC_LOCKS_DEVICE_INODE.search(line)
+        if match is None:
+            continue
+        major, minor, inode = match.groups()
+        if (int(major, 16), int(minor, 16), int(inode)) == target:
+            return True
+    return False
 
 
 class Sandbox:
@@ -319,7 +338,7 @@ class Sandbox:
             uncontended.
         """
         locks = self.locks.glob("*.lock") if self.locks.is_dir() else []
-        return all(lock_is_free(p) for p in locks)
+        return not any(lock_is_held_by_anyone(p) for p in locks)
 
 
 def publication_env(mode: str, bindir: Path) -> dict[str, str]:
@@ -384,7 +403,7 @@ __all__ = [
     "Sandbox",
     "build_env",
     "classify",
-    "lock_is_free",
+    "lock_is_held_by_anyone",
     "publication_env",
     "write_stubs",
 ]
