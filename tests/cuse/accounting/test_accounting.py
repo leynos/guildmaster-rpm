@@ -26,6 +26,8 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 CAPACITY = 2
@@ -33,6 +35,65 @@ WAIT_SECONDS = 20.0
 CLIENT = Path(__file__).with_name("gmclient.py")
 MEMBER = os.environ.get("GM_MEMBER", "gm-member")
 READ_SYSCALL = {"x86_64": "0", "aarch64": "63"}[platform.machine()]
+
+
+POLL_INTERVAL = 0.05
+
+
+@dataclass(frozen=True)
+class Clock:
+    """The time source the bounded waits use.
+
+    Injected rather than called directly, so that the waits can be tested
+    without real time passing.
+
+    Attributes
+    ----------
+    now : Callable[[], float]
+        Returns a monotonic time in seconds.
+    sleep : Callable[[float], None]
+        Pauses for the given number of seconds.
+    """
+
+    now: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], None] = time.sleep
+
+
+SYSTEM_CLOCK = Clock()
+
+
+def wait_until(
+    condition: Callable[[], bool],
+    timeout: float = WAIT_SECONDS,
+    clock: Clock = SYSTEM_CLOCK,
+) -> bool:
+    """Poll ``condition`` until it holds or ``timeout`` seconds have passed.
+
+    The pause between polls is pacing only; the outcome is decided by the
+    condition, never by elapsed time alone.
+
+    Parameters
+    ----------
+    condition : Callable[[], bool]
+        Checked first immediately, then after each pause.
+    timeout : float
+        The bound, in seconds of ``clock`` time.
+    clock : Clock
+        The time source; the real monotonic clock by default.
+
+    Returns
+    -------
+    bool
+        True as soon as ``condition`` returns true; False if the bound
+        passes first.
+    """
+    deadline = clock.now() + timeout
+    while True:
+        if condition():
+            return True
+        if clock.now() >= deadline:
+            return False
+        clock.sleep(POLL_INTERVAL)
 
 
 class CheckFailed(Exception):
@@ -72,13 +133,15 @@ class Client:
         that was started.
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, clock: Clock = SYSTEM_CLOCK) -> None:
         """Start gmclient.py as the authorized test user and verify its PID.
 
         Parameters
         ----------
         name : str
             The label to record for this client.
+        clock : Clock
+            The time source for this client's bounded waits.
 
         Raises
         ------
@@ -87,6 +150,7 @@ class Client:
             process that was started.
         """
         self.name = name
+        self.clock = clock
         self.process = subprocess.Popen(
             # setpriv execs the client directly, so this process *is* the
             # client: killing it kills the token holder, not a wrapper.
@@ -245,13 +309,15 @@ class Client:
             If the client is never observed blocked in read(2) within
             :data:`WAIT_SECONDS`.
         """
-        deadline = time.monotonic() + WAIT_SECONDS
-        while time.monotonic() < deadline:
+
+        def blocked_in_read() -> bool:
             syscall = Path(f"/proc/{self.pid}/syscall").read_text().split()
-            if syscall and syscall[0] == READ_SYSCALL and not self.has_answer(0):
-                return
-            time.sleep(0.05)
-        raise CheckFailed(f"{self.name}: never observed blocked in read(2)")
+            return (
+                bool(syscall) and syscall[0] == READ_SYSCALL and not self.has_answer(0)
+            )
+
+        if not wait_until(blocked_in_read, clock=self.clock):
+            raise CheckFailed(f"{self.name}: never observed blocked in read(2)")
 
     def kill(self) -> None:
         """Send SIGKILL to the client and wait for it to exit.
@@ -503,18 +569,17 @@ def scenario_inherited_handles(clients: list[Client]) -> None:
         )
     finally:
         os.kill(child_pid, signal.SIGKILL)
-    deadline = time.monotonic() + WAIT_SECONDS
-    while Path(f"/proc/{child_pid}").exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
+    wait_until(lambda: not Path(f"/proc/{child_pid}").exists(), clock=probe.clock)
+
     # Release is asynchronous with respect to the child's exit; await it
     # through the pool itself, with a bound.
-    while time.monotonic() < deadline:
+    def pool_restored() -> bool:
         taken = drain(probe, hp)
         for _ in range(taken):
             probe.expect(f"give {hp}", "gave")
-        if taken == CAPACITY:
-            break
-        time.sleep(0.05)
+        return taken == CAPACITY
+
+    wait_until(pool_restored, clock=probe.clock)
     expect_pool(
         probe, hp, CAPACITY, "closing the last inherited copy returns the token"
     )

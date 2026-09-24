@@ -53,6 +53,7 @@ unit:
 	scripts/tests/test-upgrade-fixture.sh
 	scripts/tests/test-upgrade-fixture-cancel.sh
 	uv run --no-project --with pyyaml==6.0.2 python3 scripts/tests/test_workflows.py
+	scripts/tests/test_accounting_waits.py
 	scripts/tests/model_check.py
 
 # The higher-release rebuild that the upgrade tests install over the package

@@ -493,6 +493,7 @@ _Table 2: test tiers, what they run, and what they cover._
 | Tier | Entry point | Covers |
 | --- | --- | --- |
 | Offline script tests | `make unit` (`test-build-rpm.sh`, `test-systemd-fixture.sh`, `test-cuse-scripts.sh`, `test-release-scripts.sh`, `test-verify-release.sh`, `test-virt-preflight.sh`, `test-upgrade-fixture.sh`, `test-upgrade-fixture-cancel.sh`) | Every repository script's own orchestration, validation and locking, against stub commands — no network, no container runtime, no `tmt`. |
+| Guest-test helpers | `make unit` (`test_accounting_waits.py`) | The bounded-wait helper of the guest accounting test, against a fake clock. |
 | Workflow contract | `make unit` (`test_workflows.py`, through `uv` with PyYAML 6.0.2) | The CI, acceptance and release workflows and the composite actions, parsed and checked against the release contract, with mutations. |
 | Bounded model check | `make unit` (`model_check.py`) | A breadth sweep, executed and abstract, over the same build/publish/clean state space; see below. |
 | Rootless systemd container tier | `make test` | Distribution userspace: packaging, the installed unit, accounts, upgrade and removal, and the documented CUSE-missing failure. Runs against the _host_ kernel. |
@@ -553,6 +554,11 @@ installs it. Mutations of the workflow text must each be caught. It
 needs PyYAML, so `make unit` runs it with
 `uv run --no-project --with pyyaml==6.0.2`; `uv` must be on `PATH`, and
 the CI jobs install it with `astral-sh/setup-uv`.
+
+The guest accounting test takes its clock as a parameter: every bounded wait
+goes through one `wait_until` helper with an injectable `Clock`.
+`scripts/tests/test_accounting_waits.py` checks that helper offline against a
+fake clock that advances only when slept on, so no real time passes.
 
 None of these offline suites says anything about whether a real
 host can boot the fixtures — `podman-preflight.sh`,
