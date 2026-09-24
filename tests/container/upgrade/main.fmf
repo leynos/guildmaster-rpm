@@ -1,0 +1,3 @@
+summary: Upgrade keeps configuration and enablement
+test: ./test.sh
+order: 70

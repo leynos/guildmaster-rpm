@@ -1,0 +1,4 @@
+summary: Documented start failure without CUSE
+test: ./test.sh
+order: 40
+duration: 10m

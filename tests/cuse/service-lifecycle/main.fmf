@@ -1,0 +1,5 @@
+summary: Stop, start, drain, restart, crash, bad config
+test: ./test.sh
+order: 150
+require:
+  - psmisc

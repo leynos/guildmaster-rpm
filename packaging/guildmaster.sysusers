@@ -1,0 +1,5 @@
+# The daemon's unprivileged account. Its group is given access to /dev/cuse.
+u guildmaster - "Guildmaster jobserver daemon" - -
+# Members of this group may take tokens from /dev/guild. The daemon is not a
+# member, and membership does not grant access to /dev/cuse.
+g guild -

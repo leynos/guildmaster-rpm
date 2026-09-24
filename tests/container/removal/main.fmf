@@ -1,0 +1,3 @@
+summary: Removal disables; edited configuration kept
+test: ./test.sh
+order: 80

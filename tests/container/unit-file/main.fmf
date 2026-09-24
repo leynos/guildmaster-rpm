@@ -1,0 +1,4 @@
+summary: The installed production unit verifies
+test: ./test.sh
+order: 20
+tag+: [cuse]

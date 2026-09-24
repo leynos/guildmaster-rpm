@@ -1,0 +1,13 @@
+# Options for guildmaster.service. This file is yours: package upgrades do
+# not replace it.
+#
+# GUILDMASTER_OPTS is passed to /usr/bin/guildmaster. Leave it empty to keep
+# the upstream default capacity of one token per online processor, plus one.
+# To set an explicit capacity, for example two tokens:
+#
+#   GUILDMASTER_OPTS="--tokens=2"
+#
+# A change takes effect when the service is next started. Restarting the
+# service replaces the token pool; see guildmaster(8) before restarting while
+# builds are running.
+GUILDMASTER_OPTS=""

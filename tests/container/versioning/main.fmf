@@ -1,0 +1,4 @@
+summary: Snapshot version ordering under RPM
+test: ./test.sh
+order: 60
+tag+: [cuse]

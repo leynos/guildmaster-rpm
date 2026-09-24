@@ -1,0 +1,10 @@
+# rpmlint configuration for the guildmaster packages. Every filter names the
+# check it silences and why; anything else rpmlint reports is a failure.
+Filters = [
+    # The spelling dictionary does not know these technical terms; "dev" is
+    # the /dev in /dev/guild.
+    # The word boundary keeps misspellings such as "devce" reported.
+    'spelling-error .* (jobserver|CUSE|userspace|gm|dev)\b',
+    # Debug packages legitimately have no documentation.
+    'guildmaster-debug(info|source)\..* no-documentation',
+]

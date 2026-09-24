@@ -1,0 +1,11 @@
+# Owned by the guildmaster RPM.
+#
+# Let the guildmaster service account open the CUSE control device, and tag
+# it so that guildmaster.service can order itself after these permissions
+# have been applied. The static_node option covers the node that exists
+# before the cuse module is loaded.
+KERNEL=="cuse", SUBSYSTEM=="misc", GROUP="guildmaster", MODE="0660", TAG+="systemd", OPTIONS+="static_node=cuse"
+
+# The jobserver device that guildmaster creates. Clients must be members of
+# the guild group.
+KERNEL=="guild", SUBSYSTEM=="cuse", GROUP="guild", MODE="0660"

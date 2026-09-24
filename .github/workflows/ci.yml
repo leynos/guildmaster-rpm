@@ -1,0 +1,101 @@
+name: CI
+
+# Ordinary validation: lint, offline tests and the rootless systemd container
+# tier. Everything here is read-only and safe to run on pull requests,
+# including those from forks. The CUSE acceptance tier needs KVM and is kept
+# apart, in acceptance.yml, where pull requests cannot reach it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs of the same ref. The release workflow has its own
+# group and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-unit:
+    name: Lint and offline tests
+    runs-on: ubuntu-24.04
+    steps:
+      # Actions are pinned by commit SHA, as the images are by digest.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+
+      - name: Install lint tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends shellcheck shfmt
+          pipx install 'tmt==1.78.0'
+          npm install --global markdownlint-cli2@0.20.0
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Lint
+        run: |
+          set -o pipefail
+          make lint 2>&1 | tee "${RUNNER_TEMP}/lint.log"
+
+      - name: Offline script tests and bounded model check
+        run: |
+          set -o pipefail
+          make unit 2>&1 | tee "${RUNNER_TEMP}/unit.log"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: logs-lint-and-unit
+          path: |
+            ${{ runner.temp }}/lint.log
+            ${{ runner.temp }}/unit.log
+          if-no-files-found: ignore
+
+  container:
+    name: Build and container tier (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [rocky-10, fedora-43]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-container-tier
+
+      # test-<target> builds the packages, then installs exactly those in the
+      # fixture. The scripts never log the source URL or any credential, so
+      # the log and the diagnostics are safe to upload.
+      - name: Build and test
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -o pipefail
+          make "test-${TARGET}" 2>&1 | tee "${RUNNER_TEMP}/test-${TARGET}.log"
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-container-${{ matrix.target }}
+          path: |
+            /var/tmp/tmt/gm-fx-*
+            ${{ runner.temp }}/test-${{ matrix.target }}.log
+          if-no-files-found: ignore
+
+      - name: Upload packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rpms-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error

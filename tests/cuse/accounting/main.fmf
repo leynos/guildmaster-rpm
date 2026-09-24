@@ -1,0 +1,6 @@
+summary: Token accounting with capacity two
+test: python3 ./test_accounting.py
+order: 120
+require:
+  - python3
+  - util-linux

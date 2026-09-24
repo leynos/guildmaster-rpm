@@ -1,0 +1,5 @@
+summary: gm-run under the jobserver; exit contract
+test: ./test.sh
+order: 130
+require:
+  - make

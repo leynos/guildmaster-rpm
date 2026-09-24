@@ -1,0 +1,32 @@
+summary: Package checks under real systemd in a container
+description: |
+    Run by scripts/systemd-fixture.sh, which starts a rootless Podman
+    container with the distribution's systemd as PID 1 and hands it to tmt
+    with `provision --how container --container NAME`. Containers share the
+    host's kernel and have no CUSE device, so this plan covers packaging,
+    the installed production unit and its behaviour without CUSE. It never
+    reports guildmaster as operating; /plans/cuse does that in a real guest.
+discover:
+    how: fmf
+    filter: 'tag:container'
+provision:
+    how: container
+execute:
+    how: tmt
+adjust:
+  - when: distro == rocky-10
+    because: >
+        rpmlint is not in Rocky Linux 10's BaseOS, AppStream or CRB; EPEL 10
+        provides it. EPEL is enabled only long enough to install rpmlint and
+        is then removed again, so that no test, and in particular no
+        installation or upgrade of the package under test, can draw a
+        dependency from it.
+    prepare+:
+      - how: shell
+        name: install-rpmlint-from-epel
+        script: |
+            set -e
+            dnf -y install epel-release
+            dnf -y install rpmlint
+            dnf -y remove epel-release
+            ! dnf repolist --enabled | grep -qi epel

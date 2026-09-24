@@ -1,0 +1,246 @@
+name: Release
+
+# Tag-triggered. Builds once, tests those exact packages in both tiers, and
+# publishes the same files. The publication job never builds anything.
+on:
+  push:
+    tags: ['v*']
+
+# One release run per tag, and never cancelled: a publication in progress must
+# not be interrupted by a second push of the same tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-unit:
+    name: Lint and offline tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+
+      - name: Install lint tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends shellcheck shfmt
+          pipx install 'tmt==1.78.0'
+          npm install --global markdownlint-cli2@0.20.0
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Lint, offline script tests and bounded model check
+        run: |
+          set -o pipefail
+          make lint unit 2>&1 | tee "${RUNNER_TEMP}/lint-and-unit.log"
+
+  build:
+    name: Build and container tier (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [rocky-10, fedora-43]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-container-tier
+
+      - name: Build and test
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -o pipefail
+          make "test-${TARGET}" 2>&1 | tee "${RUNNER_TEMP}/test-${TARGET}.log"
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-container-${{ matrix.target }}
+          path: |
+            /var/tmp/tmt/gm-fx-*
+            ${{ runner.temp }}/test-${{ matrix.target }}.log
+          if-no-files-found: ignore
+
+      # The candidate: these files, and no rebuild of them, are what the
+      # guest tier tests and what is published.
+      - name: Upload candidate packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error
+
+      - name: Upload container evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evidence-container-${{ matrix.target }}
+          path: .build/evidence/
+          # Everything under .build/ counts as hidden to upload-artifact.
+          include-hidden-files: true
+          if-no-files-found: error
+
+  cuse:
+    name: CUSE acceptance (${{ matrix.target }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [rocky-10, fedora-43]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-cuse-tier
+
+      - name: Cache verified guest images
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/guildmaster-rpm/images
+          key: guest-image-${{ matrix.target }}-${{ hashFiles('fixtures/cuse/images.tsv') }}
+
+      - name: Download the candidate packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: candidate-${{ matrix.target }}
+          path: dist/${{ matrix.target }}
+
+      # accept-cuse-<target> tests what is in dist/ and builds no packages.
+      # cuse-guest.sh checks every file against the candidate's manifest.
+      - name: Run the guest plan on the candidate
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -o pipefail
+          make "accept-cuse-${TARGET}" 2>&1 | tee "${RUNNER_TEMP}/accept-cuse-${TARGET}.log"
+
+      - name: Upload CUSE evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evidence-cuse-${{ matrix.target }}
+          path: .build/evidence/
+          # Everything under .build/ counts as hidden to upload-artifact.
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-cuse-${{ matrix.target }}
+          path: |
+            /var/tmp/tmt/gm-cuse-*
+            !/var/tmp/tmt/gm-cuse-*/**/id_ecdsa*
+            ${{ runner.temp }}/accept-cuse-${{ matrix.target }}.log
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish GitHub release
+    # Every gate of make release-check, for every target. A skipped or failed
+    # guest job blocks publication; container results cannot stand in for it.
+    needs: [lint-and-unit, build, cuse]
+    runs-on: ubuntu-24.04
+    # The only job that can write, and it builds nothing.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Download candidates
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: candidate-*
+          path: candidates
+
+      - name: Download evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: evidence-*
+          path: evidence-artifacts
+
+      # Artefact directories are candidate-<target>; the scripts expect
+      # <target>. Evidence from four jobs is gathered into one directory;
+      # mv -n plus the count check make a name collision an error.
+      - name: Lay out candidates and evidence
+        run: |
+          set -euo pipefail
+          mkdir candidate-dist evidence
+          for dir in candidates/candidate-*; do
+            mv "$dir" "candidate-dist/${dir#candidates/candidate-}"
+          done
+          expected=$(find evidence-artifacts -type f -name '*.txt' | wc -l)
+          find evidence-artifacts -type f -name '*.txt' -exec mv -n {} evidence/ \;
+          [ "$(find evidence -type f | wc -l)" -eq "$expected" ]
+          ls -l candidate-dist/* evidence
+
+      # Both tiers passed, for this commit, on exactly these bytes.
+      - name: Cross-check the evidence against the candidates
+        run: |
+          DIST_DIR=candidate-dist EVIDENCE_DIR=evidence SOURCE_COMMIT="$GITHUB_SHA" \
+            scripts/release-evidence.sh
+
+      # GITHUB_REF_NAME comes from the environment, never from template
+      # expansion, so a crafted tag name cannot inject shell.
+      - name: Validate the matrix and assemble the assets
+        run: |
+          SOURCE_COMMIT="$GITHUB_SHA" EVIDENCE_DIR=evidence \
+            scripts/assemble-release.sh "$GITHUB_REF_NAME" candidate-dist assets
+          cat assets/SHA256SUMS
+
+      # Safe to re-run. A published release is never modified: if one exists
+      # for this tag it must already hold exactly these bytes, otherwise the
+      # job fails. A draft left by an interrupted run was never public and is
+      # replaced. The release is created as a draft and only made public once
+      # every asset has been uploaded.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if state=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$state" = false ]; then
+              # Compare everything the public release holds, not only its
+              # checksum file: the same asset names, and published bytes that
+              # match their own SHA256SUMS.
+              mkdir published
+              gh release download "$tag" --dir published
+              published_names=$(cd published && find . -maxdepth 1 -type f | sed 's#^\./##' | LC_ALL=C sort)
+              expected_names=$(cd assets && find . -maxdepth 1 -type f ! -name release-notes.md | sed 's#^\./##' | LC_ALL=C sort)
+              if [ "$published_names" = "$expected_names" ] &&
+                (cd published && sha256sum --check --strict --quiet SHA256SUMS) &&
+                cmp --silent published/SHA256SUMS assets/SHA256SUMS; then
+                echo "Release $tag is already published with identical packages."
+                exit 0
+              fi
+              echo "Release $tag is already published with different packages; refusing to replace them." >&2
+              diff published/SHA256SUMS assets/SHA256SUMS >&2 || true
+              exit 1
+            fi
+            gh release delete "$tag" --yes
+          fi
+          prerelease=''
+          case "$tag" in
+            *pre* | *rc* | *alpha* | *beta*) prerelease='--prerelease' ;;
+          esac
+          # shellcheck disable=SC2086
+          gh release create "$tag" --verify-tag --draft $prerelease \
+            --title "guildmaster ${tag#v}" \
+            --notes-file assets/release-notes.md \
+            assets/*.rpm assets/SHA256SUMS
+          gh release edit "$tag" --draft=false
+          gh release view "$tag" --json assets --jq '.assets[].name'

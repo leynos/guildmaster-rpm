@@ -1,0 +1,5 @@
+summary: rpmlint the built packages
+test: ./test.sh
+order: 50
+require:
+  - rpmlint

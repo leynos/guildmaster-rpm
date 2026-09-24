@@ -1,0 +1,114 @@
+From: Payton McIntosh <pmcintosh@df12.net>
+Subject: [PATCH] guildmaster: add a --tokens option for the pool capacity
+
+Provenance: downstream patch carried by leynos/guildmaster-rpm; not
+  submitted upstream at the time of writing.
+Upstream base: codeberg.org/amonakov/guildmaster
+  463382ba5b47625a9355832cd792a164c54237f9
+Purpose: let the operator choose the token pool capacity. Upstream fixes it
+  at the number of online processors plus one; the consuming deployment
+  needs an explicit, smaller capacity.
+Behaviour: `--tokens N` and `--tokens=N` accept a positive decimal integer
+  that fits in unsigned long long. Zero, signs, whitespace, trailing
+  characters, empty and out-of-range values are rejected with a diagnostic
+  and exit status 2 before /dev/cuse is opened, as is a trailing
+  `--tokens` with no value. Without the option the upstream default is
+  unchanged. All other arguments still reach libfuse untouched. The selected capacity is logged once at start-up.
+Removal condition: drop when upstream provides an equivalent way to set
+  the capacity, adapting the packaged unit and documentation to it.
+---
+diff --git a/guildmaster.c b/guildmaster.c
+index 41523ba..179e5da 100644
+--- a/guildmaster.c
++++ b/guildmaster.c
+@@ -1,10 +1,13 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ 
++#include <ctype.h>
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <poll.h>
+ #include <signal.h>
++#include <stddef.h>
++#include <string.h>
+ #include <unistd.h>
+ 
+ #define FUSE_USE_VERSION 35
+@@ -212,16 +215,63 @@ static const struct cuse_lowlevel_ops fops = {
+ 	.poll    = gm_poll,
+ };
+ 
++struct gm_opts {
++	char *tokens;
++};
++
++static const struct fuse_opt gm_opt_spec[] = {
++	/* Every matching template is applied in order, and "--tokens=N" also
++	 * matches the first one (as "=N"), so the exact form must come last. */
++	{ "--tokens %s", offsetof(struct gm_opts, tokens), 0 },
++	{ "--tokens=%s", offsetof(struct gm_opts, tokens), 0 },
++	FUSE_OPT_END
++};
++
++/* Accept a plain positive decimal integer and nothing else. */
++static int parse_tokens(const char *s, unsigned long long *out)
++{
++	char *end;
++	if (!isdigit((unsigned char)*s))
++		return -1;
++	errno = 0;
++	*out = strtoull(s, &end, 10);
++	if (errno || *end || !*out)
++		return -1;
++	return 0;
++}
++
+ int main(int argc, char **argv)
+ {
+ 	gm.readers.ptail = &gm.readers.head;
+ 	gm.pollers.ptail = &gm.pollers.head;
+-	long nproc;
+-	if ((nproc = sysconf(_SC_NPROCESSORS_ONLN)) < 0) {
+-		perror("sysconf");
++
++	/* A trailing "--tokens" has no value for the parser to take. */
++	if (argc > 1 && !strcmp(argv[argc - 1], "--tokens")) {
++		gm_log("guildmaster: invalid --tokens value '': "
++		       "expected a positive decimal integer\n");
++		return 2;
++	}
++
++	struct fuse_args fa = FUSE_ARGS_INIT(argc, argv);
++	struct gm_opts opts = { 0 };
++	if (fuse_opt_parse(&fa, &opts, gm_opt_spec, 0))
+ 		return 1;
++	if (opts.tokens) {
++		if (parse_tokens(opts.tokens, &gm.tokens)) {
++			gm_log("guildmaster: invalid --tokens value '%s': "
++			       "expected a positive decimal integer\n",
++			       opts.tokens);
++			return 2;
++		}
++	} else {
++		long nproc;
++		if ((nproc = sysconf(_SC_NPROCESSORS_ONLN)) < 0) {
++			perror("sysconf");
++			return 1;
++		}
++		gm.tokens = nproc + 1;
+ 	}
+-	gm.tokens = nproc + 1;
++	gm_log("token pool capacity %llu\n", gm.tokens);
+ 
+ 	const char *devpath = "/dev/cuse";
+ 	int cuse_fd;
+@@ -239,8 +289,6 @@ int main(int argc, char **argv)
+ 		.dev_info_argv = &devname,
+ 	};
+ 
+-	struct fuse_args fa = FUSE_ARGS_INIT(argc, argv);
+-
+ 	struct fuse_session *fs;
+ 	if (!(fs = cuse_lowlevel_new(&fa, &ci, &fops, 0))
+ 	    || fuse_session_mount(fs, mountpoint)

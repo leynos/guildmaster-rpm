@@ -1,0 +1,3 @@
+summary: Install with CUSE already loaded applies the rule
+test: ./test.sh
+order: 190

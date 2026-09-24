@@ -1,0 +1,35 @@
+.TH GM\-RUN 1 "2026-09-21" "guildmaster 0.1" "User Commands"
+.SH NAME
+gm\-run \- run a command under the guildmaster jobserver
+.SH SYNOPSIS
+.B gm\-run
+.I command
+.RI [ argument ...]
+.SH DESCRIPTION
+.B gm\-run
+opens
+.IR /dev/guild ,
+waits for one token, and runs
+.I command
+with
+.B \-\-jobserver\-auth=fifo:/dev/guild
+appended to
+.BR MAKEFLAGS ,
+so that jobserver-aware tools such as GNU Make and Ninja share the
+machine-wide pool. The token is returned when
+.I command
+finishes.
+.PP
+The invoking user needs read and write access to
+.IR /dev/guild ;
+with the packaged udev rules that means membership of the
+.B guild
+group.
+.SH EXIT STATUS
+The exit status of
+.IR command ;
+128 plus the signal number if it was killed by a signal; or 1 if
+.I /dev/guild
+could not be opened or read, or the command could not be run.
+.SH SEE ALSO
+.BR guildmaster (8)

@@ -1,0 +1,3 @@
+summary: Upgrade leaves a running daemon alone
+test: ./test.sh
+order: 160

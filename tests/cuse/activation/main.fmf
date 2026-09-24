@@ -1,0 +1,3 @@
+summary: Documented activation on real CUSE
+test: ./test.sh
+order: 100

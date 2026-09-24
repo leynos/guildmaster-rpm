@@ -1,0 +1,9 @@
+# Ruff configuration for the repository's Python test code.
+target-version = "py312"
+
+[lint]
+# The defaults, plus complexity limits so that test harnesses stay readable.
+extend-select = ["C901", "PLR0912", "PLR0915"]
+
+[lint.mccabe]
+max-complexity = 9
