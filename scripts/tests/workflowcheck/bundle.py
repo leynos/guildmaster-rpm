@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# PyYAML is supplied only at run time, by the Makefile's
+# "uv run --no-project --with pyyaml==6.0.2"; it is not a project dependency,
+# so ty cannot resolve the import when it checks this file.
 import yaml  # ty: ignore[unresolved-import]
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

@@ -94,7 +94,7 @@ def _check_lock_observation_is_read_only() -> None:
 
         holder = _spawn_lock_holder(lock_path)
         try:
-            assert holder.stdout is not None
+            assert holder.stdout is not None, "lock holder stdout pipe was not created"
             if holder.stdout.readline().strip() != "locked":
                 raise CheckFailure("boundary check could not arrange a held lock")
 

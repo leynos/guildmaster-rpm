@@ -25,14 +25,38 @@ from .bundle import (
 
 
 def check_ci_triggers(bundle: Bundle) -> None:
-    """CI runs on pull requests and pushes to main, and nothing else."""
+    """CI runs on pull requests and pushes to main, and nothing else.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``ci.yml`` has any trigger other than ``push`` and
+        ``pull_request``, or its push trigger is not limited to ``main``.
+    """
     on = get_on(bundle.docs["ci"])
     assert set(on) == {"push", "pull_request"}, f"ci triggers: {on}"
     assert on["push"] == {"branches": ["main"]}, f"ci push trigger: {on['push']}"
 
 
 def check_acceptance_triggers(bundle: Bundle) -> None:
-    """Acceptance runs on pushes to main and manual dispatch only."""
+    """Acceptance runs on pushes to main and manual dispatch only.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``acceptance.yml`` has any trigger other than ``push`` and
+        ``workflow_dispatch``, or its push trigger is not limited to ``main``.
+    """
     on = get_on(bundle.docs["acceptance"])
     assert set(on) == {"push", "workflow_dispatch"}, f"acceptance triggers: {on}"
     assert on["push"] == {"branches": ["main"]}, (
@@ -45,7 +69,19 @@ def check_acceptance_triggers(bundle: Bundle) -> None:
 
 
 def check_release_triggers(bundle: Bundle) -> None:
-    """Release runs only on pushes of tags matching v*."""
+    """Release runs only on pushes of tags matching v*.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``release.yml`` runs on anything but pushes of tags
+        matching ``v*``.
+    """
     on = get_on(bundle.docs["release"])
     assert set(on) == {"push"}, f"release triggers: {on}"
     assert on["push"] == {"tags": ["v*"]}, f"release push trigger: {on['push']}"
@@ -56,7 +92,19 @@ def check_release_triggers(bundle: Bundle) -> None:
 
 
 def check_matrices(bundle: Bundle) -> None:
-    """Every build/container/cuse job matrices exactly the two targets."""
+    """Every build/container/cuse job matrices exactly the two targets.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a build, container or cuse job does not run on exactly the
+        ``rocky-10`` and ``fedora-43`` targets.
+    """
     targets = [
         ("ci", "container"),
         ("acceptance", "cuse"),
@@ -75,7 +123,20 @@ def check_matrices(bundle: Bundle) -> None:
 
 
 def check_release_job_graph(bundle: Bundle) -> None:
-    """cuse needs build; publish needs exactly lint-and-unit, build, cuse."""
+    """cuse needs build; publish needs exactly lint-and-unit, build, cuse.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If the release ``cuse`` job does not need ``build``, or
+        ``publish`` does not need exactly ``lint-and-unit``, ``build`` and
+        ``cuse``.
+    """
     jobs = bundle.docs["release"]["jobs"]
     assert needs_set(jobs["cuse"]) == {"build"}, (
         f"cuse needs: {jobs['cuse'].get('needs')}"
@@ -86,7 +147,19 @@ def check_release_job_graph(bundle: Bundle) -> None:
 
 
 def check_permissions_top_level(bundle: Bundle) -> None:
-    """Every workflow declares top-level contents: read."""
+    """Every workflow declares top-level contents: read.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a workflow does not declare top-level
+        ``contents: read``.
+    """
     for name, doc in bundle.docs.items():
         assert doc.get("permissions") == {"contents": "read"}, (
             f"{name} top-level permissions: {doc.get('permissions')}"
@@ -94,7 +167,19 @@ def check_permissions_top_level(bundle: Bundle) -> None:
 
 
 def check_permissions_publish_only(bundle: Bundle) -> None:
-    """Only release.yml's publish job declares contents: write."""
+    """Only release.yml's publish job declares contents: write.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If any job other than ``release.yml``'s ``publish``
+        declares ``contents: write``.
+    """
     for wf_name, doc in bundle.docs.items():
         for job_name, job in doc["jobs"].items():
             perms = job.get("permissions")
@@ -107,7 +192,19 @@ def check_permissions_publish_only(bundle: Bundle) -> None:
 
 
 def check_concurrency(bundle: Bundle) -> None:
-    """ci/acceptance cancel superseded runs; release never cancels."""
+    """ci/acceptance cancel superseded runs; release never cancels.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``ci.yml`` or ``acceptance.yml`` does not cancel superseded
+        runs, or ``release.yml`` may cancel one.
+    """
     for name in ("ci", "acceptance"):
         conc = bundle.docs[name]["concurrency"]
         assert conc["cancel-in-progress"] is True, f"{name} cancel-in-progress: {conc}"
@@ -119,7 +216,19 @@ def check_concurrency(bundle: Bundle) -> None:
 
 
 def check_pinned_actions(bundle: Bundle) -> None:
-    """Every non-local uses: is owner/repo@<40-hex sha> with a comment."""
+    """Every non-local uses: is owner/repo@<40-hex sha> with a comment.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a non-local ``uses:`` reference is not pinned to a 40-digit
+        commit SHA with a version comment.
+    """
     sources = {**bundle.raws, **bundle.action_raws}
     for source_name, raw in sources.items():
         for line in raw.splitlines():
@@ -136,7 +245,19 @@ def check_pinned_actions(bundle: Bundle) -> None:
 
 
 def check_checkout_persist_credentials(bundle: Bundle) -> None:
-    """Every actions/checkout step sets persist-credentials: false."""
+    """Every actions/checkout step sets persist-credentials: false.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If an ``actions/checkout`` step does not set
+        ``persist-credentials: false``.
+    """
     for wf_name, doc in bundle.docs.items():
         for job_name, label, step in iter_steps(doc):
             uses = step.get("uses", "")
@@ -150,7 +271,19 @@ def check_checkout_persist_credentials(bundle: Bundle) -> None:
 
 
 def check_artifact_names_release(bundle: Bundle) -> None:
-    """release.yml's artefact names, paths and error-on-empty settings."""
+    """release.yml's artefact names, paths and error-on-empty settings.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a ``release.yml`` artefact has an unexpected name or
+        path, or does not fail when it would upload nothing.
+    """
     doc = bundle.docs["release"]
 
     candidate = find_step(doc, "build", "Upload candidate packages")["with"]
@@ -181,7 +314,19 @@ def check_artifact_names_release(bundle: Bundle) -> None:
 
 
 def check_artifact_names_ci_acceptance(bundle: Bundle) -> None:
-    """ci.yml and acceptance.yml artefact names and error-on-empty settings."""
+    """ci.yml and acceptance.yml artefact names and error-on-empty settings.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a ``ci.yml`` or ``acceptance.yml`` artefact has an
+        unexpected name, or does not fail when it would upload nothing.
+    """
     ci_doc = bundle.docs["ci"]
     rpms = find_step(ci_doc, "container", "Upload packages")["with"]
     assert rpms["name"] == "rpms-${{ matrix.target }}", rpms
@@ -213,7 +358,20 @@ def _ordered_run_texts(job: dict[str, Any]) -> list[str]:
 
 
 def check_candidate_flow(bundle: Bundle) -> None:
-    """The release cuse job accepts; publish never builds and orders steps."""
+    """The release cuse job accepts; publish never builds and orders steps.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If the release ``cuse`` job does not accept the built
+        candidate, ``publish`` builds anything itself, or ``publish``'s steps
+        are out of order.
+    """
     jobs = bundle.docs["release"]["jobs"]
 
     cuse_run = "\n".join(_ordered_run_texts(jobs["cuse"]))
@@ -239,7 +397,19 @@ def check_candidate_flow(bundle: Bundle) -> None:
 
 
 def check_tag_name_env(bundle: Bundle) -> None:
-    """release.yml uses GITHUB_REF_NAME, never an interpolated ref_name."""
+    """release.yml uses GITHUB_REF_NAME, never an interpolated ref_name.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``release.yml`` interpolates ``ref_name`` rather than
+        reading ``GITHUB_REF_NAME`` from the environment.
+    """
     raw = bundle.raws["release"]
     assert "${{ github.ref_name }}" not in raw, (
         "release.yml must not interpolate github.ref_name into run: scripts"
@@ -248,7 +418,19 @@ def check_tag_name_env(bundle: Bundle) -> None:
 
 
 def check_composite_setup_cuse(bundle: Bundle) -> None:
-    """setup-cuse-tier is composite, preflights and pins tmt correctly."""
+    """setup-cuse-tier is composite, preflights and pins tmt correctly.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``setup-cuse-tier`` is not a composite action, does not
+        run the preflight, or does not pin tmt as required.
+    """
     doc = bundle.action_docs["setup-cuse-tier"]
     assert doc["runs"]["using"] == "composite", doc["runs"]
     raw = bundle.action_raws["setup-cuse-tier"]
@@ -260,7 +442,19 @@ def check_composite_setup_cuse(bundle: Bundle) -> None:
 
 
 def check_composite_setup_container(bundle: Bundle) -> None:
-    """setup-container-tier is composite, preflights and enables lingering."""
+    """setup-container-tier is composite, preflights and enables lingering.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If ``setup-container-tier`` is not a composite action, or
+        does not run the preflight and enable lingering.
+    """
     doc = bundle.action_docs["setup-container-tier"]
     assert doc["runs"]["using"] == "composite", doc["runs"]
     raw = bundle.action_raws["setup-container-tier"]
@@ -274,6 +468,17 @@ def check_hidden_paths_uploaded(bundle: Bundle) -> None:
     ``actions/upload-artifact`` v4.4 and later skips hidden files and every
     file inside a directory whose name starts with a dot, so an upload of
     ``.build/...`` finds nothing unless ``include-hidden-files`` is true.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If an ``actions/upload-artifact`` step uploads a path under
+        a hidden directory without ``include-hidden-files: true``.
     """
     for name, doc in bundle.docs.items():
         for job_name, label, step in iter_steps(doc):
@@ -322,7 +527,19 @@ def _job_provides_uv(job: dict[str, Any], container_action_raw: str) -> bool:
 
 
 def check_uv_available_for_make(bundle: Bundle) -> None:
-    """Every job running a make target that needs uv installs uv first."""
+    """Every job running a make target that needs uv installs uv first.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a job runs a ``make`` target whose recipe needs uv
+        without installing uv first.
+    """
     container_raw = bundle.action_raws["setup-container-tier"]
     for name, doc in bundle.docs.items():
         for job_name, job in doc["jobs"].items():
@@ -336,7 +553,19 @@ def check_uv_available_for_make(bundle: Bundle) -> None:
 
 
 def check_logs_under_runner_temp(bundle: Bundle) -> None:
-    """Every tee target in the workflows is under ${RUNNER_TEMP}."""
+    """Every tee target in the workflows is under ${RUNNER_TEMP}.
+
+    Parameters
+    ----------
+    bundle : Bundle
+        The parsed workflow and composite action files under test.
+
+    Raises
+    ------
+    AssertionError
+        If a workflow ``tee`` target is not under
+        ``${RUNNER_TEMP}``.
+    """
     for name, raw in bundle.raws.items():
         for line in raw.splitlines():
             stripped = line.strip()
