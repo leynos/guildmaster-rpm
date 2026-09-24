@@ -311,7 +311,11 @@ summarizes the mechanism.
   event for that one device, so it takes the package's group, mode and
   `systemd` tag at once; without that the service could not start until
   a reboot. `tests/cuse/preloaded` covers this, and failed before the
-  change. `%preun`
+  change. udev resolves `GROUP=` when it parses its rules, so `%post`
+  first runs `systemd-sysusers` for the package's file and reloads only
+  once the group resolves: Rocky Linux 10's rpm creates sysusers.d
+  accounts only at the end of the transaction, and a reload before that
+  left the rule without its group, as the Rocky activation test showed. `%preun`
   runs `%systemd_preun guildmaster.service`. `%postun` runs plain
   `%systemd_postun guildmaster.service`, **never**
   `%systemd_postun_with_restart`: restarting the daemon destroys

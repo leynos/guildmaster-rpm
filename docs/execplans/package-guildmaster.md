@@ -274,6 +274,16 @@ fresh-guest CUSE acceptance plan.
   developers' guide had stale claims; and three model-check functions and
   the guest client exceeded complexity limits, now enforced by `ruff.toml`.
 
+- Observation: Fedora 43's rpm creates `sysusers.d` accounts before
+  `%post`; Rocky Linux 10's rpm 4.19 leaves it to systemd's file trigger at
+  the end of the transaction. An explicit `udevadm control --reload` in
+  `%post` therefore parsed the rule while the `guildmaster` group did not
+  exist on Rocky; udev dropped `GROUP=`, never re-read the rules, and
+  `/dev/cuse` came up `root:root 660`, so the daemon got `Permission
+  denied` (activation test, run at 4c53112). `%post` now runs
+  `systemd-sysusers` for the package's file first and reloads only when
+  the group resolves.
+
 ## Decision log
 
 - Decision: CodeRabbit's pre-merge Observability warning, asking for a

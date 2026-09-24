@@ -80,9 +80,21 @@ bash %{SOURCE7} %{buildroot}%{_bindir}/guildmaster
 # default root-only mode and lacks the systemd tag the unit depends on.
 # Replay udev for that one device. Where udev is not running, as in
 # containers and image builds, this does nothing.
+#
+# udev resolves GROUP= when it parses the rules, so the group must exist
+# before the reload. Fedora's rpm creates sysusers.d accounts before %%post;
+# Rocky Linux 10's rpm leaves that to systemd's file trigger at the end of
+# the transaction, so create them here first, idempotently. If the group
+# still does not resolve, skip the reload: a reload now would fix the rule
+# without its group until udev next re-read its rules.
 if [ -c /dev/cuse ] && [ -x /usr/bin/udevadm ]; then
-    /usr/bin/udevadm control --reload >/dev/null 2>&1 || :
-    /usr/bin/udevadm trigger --action=change --name-match=/dev/cuse --settle >/dev/null 2>&1 || :
+    if [ -x /usr/bin/systemd-sysusers ]; then
+        /usr/bin/systemd-sysusers %{_sysusersdir}/guildmaster.conf >/dev/null 2>&1 || :
+    fi
+    if getent group guildmaster >/dev/null 2>&1; then
+        /usr/bin/udevadm control --reload >/dev/null 2>&1 || :
+        /usr/bin/udevadm trigger --action=change --name-match=/dev/cuse --settle >/dev/null 2>&1 || :
+    fi
 fi
 
 %preun
