@@ -561,7 +561,10 @@ and a timeout fails the scenario. `scripts/tests/test_accounting_waits.py`
 checks that helper offline against a fake clock that advances only when slept
 on, so no real time passes. Waits that block in the kernel instead of polling,
 `select` on a client's output and `Popen.wait` when stopping a client, keep
-their own real timeouts and are not covered by the fake clock.
+their own real timeouts and are not covered by the fake clock. Every one of
+them has a timeout, including the wait after `SIGKILL` in `Client.finish`, which
+fails the check if the client survives it; the same offline suite drives
+`finish` with a stand-in process that never exits.
 
 None of these offline suites says anything about whether a real
 host can boot the fixtures — `podman-preflight.sh`,

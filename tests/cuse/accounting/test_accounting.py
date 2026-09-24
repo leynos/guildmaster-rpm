@@ -335,11 +335,17 @@ class Client:
         Sends ``exit`` and waits for the process to exit, bounded by
         :data:`WAIT_SECONDS`. Does nothing if the process has already
         exited. Falls back to SIGKILL if the pipe is broken or the process
-        does not exit in time.
+        does not exit in time, and waits for that too, with the same bound.
 
         Returns
         -------
         None
+
+        Raises
+        ------
+        CheckFailed
+            If the process is still running :data:`WAIT_SECONDS` after
+            SIGKILL.
         """
         if self.process.poll() is None:
             try:
@@ -347,7 +353,12 @@ class Client:
                 self.process.wait(timeout=WAIT_SECONDS)
             except (BrokenPipeError, subprocess.TimeoutExpired):
                 self.process.kill()
-                self.process.wait()
+                try:
+                    self.process.wait(timeout=WAIT_SECONDS)
+                except subprocess.TimeoutExpired as error:
+                    raise CheckFailed(
+                        f"{self.name}: still running {WAIT_SECONDS}s after SIGKILL"
+                    ) from error
 
 
 def drain(client: Client, handle: int) -> int:

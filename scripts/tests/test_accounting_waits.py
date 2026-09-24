@@ -10,6 +10,7 @@ module starts no client and touches no device.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -162,6 +163,101 @@ def run_checks(module: ModuleType) -> list[tuple[str, bool]]:
     return results
 
 
+class StuckProcess:
+    """A stand-in for ``subprocess.Popen`` whose process never exits.
+
+    Attributes
+    ----------
+    waits : list[float | None]
+        The ``timeout`` of every ``wait`` call, in order.
+    killed : bool
+        Whether ``kill`` was called.
+    """
+
+    def __init__(self) -> None:
+        """Start as a running process with a closed input pipe."""
+        self.waits: list[float | None] = []
+        self.killed = False
+
+    def poll(self) -> None:
+        """Report the process as still running.
+
+        Returns
+        -------
+        None
+            Always, as a running process does.
+        """
+
+    def kill(self) -> None:
+        """Record the kill; the process ignores it."""
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Record the wait and time out, as a process that never exits would.
+
+        Parameters
+        ----------
+        timeout : float | None
+            The bound requested by the caller.
+
+        Returns
+        -------
+        int
+            Never returns.
+
+        Raises
+        ------
+        subprocess.TimeoutExpired
+            Always.
+        """
+        self.waits.append(timeout)
+        raise subprocess.TimeoutExpired("gmclient", timeout or 0)
+
+
+def run_finish_checks(module: ModuleType) -> list[tuple[str, bool]]:
+    """Check that ``Client.finish`` bounds every wait, including after SIGKILL.
+
+    Parameters
+    ----------
+    module : ModuleType
+        The loaded guest test module.
+
+    Returns
+    -------
+    list[tuple[str, bool]]
+        Each check's name and outcome.
+    """
+    results: list[tuple[str, bool]] = []
+    client = object.__new__(module.Client)
+    client.name = "stuck"
+    process = StuckProcess()
+    client.process = process
+
+    def broken_send(command: str) -> None:
+        raise BrokenPipeError(command)
+
+    client.send = broken_send
+    try:
+        client.finish()
+        outcome = "returned"
+    except module.CheckFailed:
+        outcome = "check failed"
+    except Exception as error:  # noqa: BLE001 - any other outcome is a failure
+        outcome = type(error).__name__
+    check(
+        results,
+        "a client that survives SIGKILL fails the check",
+        outcome == "check failed",
+    )
+    check(results, "finish killed the client", process.killed)
+    check(
+        results,
+        "every wait in finish is bounded",
+        bool(process.waits) and None not in process.waits,
+    )
+    return results
+
+
 def main() -> int:
     """Run the checks and print a summary.
 
@@ -170,7 +266,8 @@ def main() -> int:
     int
         0 when every check passed, otherwise 1.
     """
-    results = run_checks(load_module())
+    module = load_module()
+    results = run_checks(module) + run_finish_checks(module)
     failed = sum(1 for _, ok in results if not ok)
     print(f"accounting wait tests: {len(results) - failed} passed, {failed} failed")
     return 1 if failed else 0
