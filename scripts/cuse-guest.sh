@@ -143,7 +143,11 @@ destroy_own_guest() {
     "${VIRSH}" --connect qemu:///session undefine "${instance}" --nvram >/dev/null 2>&1 ||
         "${VIRSH}" --connect qemu:///session undefine "${instance}" >/dev/null 2>&1 || true
     rm -rf "${WORK_ROOT:?}/testcloud/instances/${instance}"
-    ! "${VIRSH}" --connect qemu:///session dominfo "${instance}" >/dev/null 2>&1
+    # Gone only if the session answers and does not list it: a failed query,
+    # such as an unreachable session, is not evidence of absence.
+    local domains
+    domains=$("${VIRSH}" --connect qemu:///session list --all --name 2>/dev/null) || return 1
+    ! grep -qxF -- "${instance}" <<<"${domains}"
 }
 
 # cleanup: destroy this run's guest and reclaim its run directory.

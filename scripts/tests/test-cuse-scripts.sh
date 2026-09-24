@@ -121,6 +121,11 @@ cat >"${stub_dir}/virsh" <<'STUB'
 printf '%s\n' "$*" >>"${SCENARIO}/virsh.log"
 case " $* " in
 *' dominfo '*) exit 1 ;;
+*' list '*)
+    [[ -f ${SCENARIO}/virsh_list_fails ]] && exit 1
+    [[ -f ${SCENARIO}/virsh_still_listed ]] && echo tmt-001-stub
+    exit 0
+    ;;
 esac
 exit 0
 STUB
@@ -158,7 +163,10 @@ run_image
 assert_status "${status}" 0
 cached=${SCENARIO}/cache/${sum:0:16}-image.qcow2
 if [[ $(cat "${SCENARIO}/stdout") == "${cached}" ]]; then ok 'prints only the cached path'; else not_ok "stdout: $(cat "${SCENARIO}/stdout")"; fi
-if [[ -f ${cached} && ! -w ${cached} ]]; then ok 'the cached image is read-only'; else not_ok 'cached image missing or writable'; fi
+# Mode bits, not test -w, which is always true for root.
+if [[ -f ${cached} && $(stat -c '%a' "${cached}") == 444 ]]; then
+    ok 'the cached image is read-only'
+else not_ok "cached image missing or not mode 444: $(stat -c '%a' "${cached}" 2>&1)"; fi
 if [[ $(find "${SCENARIO}/cache" -type f | wc -l) -eq 1 ]]; then ok 'no temporary file is left'; else not_ok 'stray files in the cache'; fi
 assert_lacks "${SCENARIO}/stderr" 'hunter2' 'the URL credentials are never logged'
 assert_lacks "${SCENARIO}/stderr" 's3cret' 'the URL token is never logged'
@@ -390,6 +398,21 @@ assert_contains "${SCENARIO}/virsh.log" 'destroy tmt-001-stub' 'the fallback des
 if [[ $(grep -c 'destroy' "${SCENARIO}/virsh.log") -eq 1 ]]; then ok 'and no other domain'; else not_ok 'more than one domain destroyed'; fi
 if [[ ! -e ${SCENARIO}/work/testcloud/instances/tmt-001-stub ]]; then ok 'and removes its instance directory'; else not_ok 'instance directory left'; fi
 assert_contains "${SCENARIO}/out" 'event=guest_destroyed target=rocky-10' 'the fallback is logged'
+
+new_guest_scenario guest_cleanup_fallback_session_unreachable
+touch "${SCENARIO}/cleanup_fails" "${SCENARIO}/virsh_list_fails"
+run_guest
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'event=guest_cleanup_failed' \
+    'an unreachable session is not taken as proof that the guest is gone'
+assert_lacks "${SCENARIO}/out" 'method=fallback' 'and the fallback does not claim success'
+
+new_guest_scenario guest_cleanup_fallback_domain_remains
+touch "${SCENARIO}/cleanup_fails" "${SCENARIO}/virsh_still_listed"
+run_guest
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'event=guest_cleanup_failed' \
+    'a domain still listed after removal is reported'
 
 echo
 echo "CUSE script tests: ${passed} passed, ${failed} failed"
