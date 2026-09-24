@@ -51,6 +51,7 @@ unit:
 	scripts/tests/test-verify-release.sh
 	scripts/tests/test-virt-preflight.sh
 	scripts/tests/test-upgrade-fixture.sh
+	scripts/tests/test-upgrade-fixture-cancel.sh
 	uv run --no-project --with pyyaml==6.0.2 python3 scripts/tests/test_workflows.py
 	scripts/tests/model_check.py
 
