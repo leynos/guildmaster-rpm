@@ -158,7 +158,9 @@ done
     echo "These assets are not a DNF repository. Download, verify with"
     echo "\`sha256sum --check SHA256SUMS\`, and install with"
     echo "\`dnf install ./<package>.rpm\`. See the"
-    echo "[users' guide](https://github.com/leynos/guildmaster-rpm/blob/${tag}/docs/users-guide.md)."
+    echo "[users' guide](https://github.com/leynos/guildmaster-rpm/blob/${tag}/docs/users-guide.md),"
+    echo "and, when replacing an install built from upstream's sources,"
+    echo "[Adopting the 0.1 packages](https://github.com/leynos/guildmaster-rpm/blob/${tag}/docs/migrations/0.1.md)."
     echo
     echo "## Known limitations"
     echo

@@ -2,7 +2,8 @@
 
 This guide covers downloading, verifying, installing, activating,
 configuring, upgrading and removing the guildmaster RPMs on Rocky Linux 10
-and Fedora 43 (x86_64).
+and Fedora 43 (x86_64). Operators replacing an install built from upstream's
+sources should read [Adopting the 0.1 packages](migrations/0.1.md) first.
 
 ## What the package provides, and what it does not
 

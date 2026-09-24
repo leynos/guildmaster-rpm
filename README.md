@@ -100,6 +100,8 @@ ______________________________________________________________________
 
 ## Learn more
 
+- [Adopting the 0.1 packages](docs/migrations/0.1.md) — what differs from
+  an upstream install, and how to move onto the packages
 - [Users' guide](docs/users-guide.md) — verification, installation,
   activation, permissions, capacity, upgrades, restarts and removal
 - [Developers' guide](docs/developers-guide.md) — provenance, versioning, the

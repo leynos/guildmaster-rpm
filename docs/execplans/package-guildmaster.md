@@ -131,13 +131,23 @@ fresh-guest CUSE acceptance plan.
   pass on both targets against real builds (host without SELinux, so
   userspace evidence only).
 - [x] (2026-09-21 21:05Z) EP-M5 CUSE guest tier: thirteen tests pass in fresh
-  guests on both targets against real builds, SELinux enforcing.
+  guests on both targets against real builds, SELinux enforcing. (Now
+  fifteen: `tests/cuse/capacity` joined on 2026-09-23 and
+  `tests/cuse/preloaded` on 2026-09-24; see below.)
 - [x] (2026-09-21 20:20Z) EP-M6 documentation and lint gates.
 - [x] (2026-09-21 21:05Z) `make release-check` passed on a clean tree at
   `fb84046`; log and evidence kept in the session scratchpad.
 - [x] (2026-09-23 15:00Z) CodeRabbit review: 13 findings, all actioned;
   `make release-check` passed again on a clean tree at `be97be6`, now with
   fourteen guest tests per target.
+- [x] (2026-09-24 02:50Z) Review rounds four to seven actioned. At `7d870a4`,
+  `make release-check` passed on a clean tree with ten offline suites, the
+  bounded model check (now with boundary checks), eight container tests and
+  fifteen fresh-guest CUSE tests per target, including `tests/cuse/preloaded`
+  (installation with CUSE already loaded). Hosted CI is green at `c135f68`,
+  and CodeRabbit's pre-merge table there has no errors; its remaining
+  warnings are this documentation update, the adoption guide added in
+  `docs/migrations/0.1.md`, and Observability, declined by the maintainer.
 - [ ] EP-M7 CI, PR and review (completed: workflows, offline suites for
   every script and for the workflows themselves, PR #1, hosted CI green on
   every pushed head since run 35648908683 with the rootless systemd
