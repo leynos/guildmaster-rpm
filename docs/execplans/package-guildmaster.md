@@ -366,9 +366,10 @@ fresh-guest CUSE acceptance plan.
   Date/Author: 2026-09-21, Claude.
 - Decision: two groups. `guildmaster` (the daemon's account and group)
   gains access to `/dev/cuse`; `guild` (clients) gains access to
-  `/dev/guild` at mode 0660. The daemon is not a member of `guild`'s
-  clients' privileges and clients cannot open `/dev/cuse`. Accounts are
-  created with `sysusers.d`.
+  `/dev/guild` at mode 0660. The daemon account is not a member of
+  `guild`, so it holds no client privileges. Clients are not members of
+  `guildmaster`, so they cannot open `/dev/cuse`. Accounts are created
+  with `sysusers.d`.
   Date/Author: 2026-09-21, Claude.
 - Decision: CUSE module loading is a package promise, delivered by
   `/usr/lib/modules-load.d/guildmaster.conf`, and tested by the reboot
