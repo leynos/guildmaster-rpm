@@ -455,6 +455,13 @@ chmod +x "${stub_bin}/podman"
 # for the move it is told to fail, and otherwise behaves exactly like mv. The
 # promotion move's source is the staging directory; the rollback move's
 # source is that directory's .previous sibling.
+#
+#   PUBLISH_MV_ANNOUNCE_FIFO  announce that the promotion move has started,
+#                             then block on PUBLISH_MV_WAIT_FIFO before
+#                             moving anything, so a test can cancel the build
+#                             while the output path is briefly absent
+#   PUBLISH_MV_WAIT_FIFO      block the promotion move until the test writes
+#                             to it
 cat >"${stub_bin}/publish-mv" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -465,9 +472,15 @@ if [[ ${src} == *.previous ]]; then
         echo "publish-mv stub: refusing to roll back ${src}" >&2
         exit 1
     fi
-elif [[ -n ${PUBLISH_MV_FAIL_PROMOTION:-} ]]; then
-    echo "publish-mv stub: refusing to promote ${src}" >&2
-    exit 1
+else
+    if [[ -n ${PUBLISH_MV_FAIL_PROMOTION:-} ]]; then
+        echo "publish-mv stub: refusing to promote ${src}" >&2
+        exit 1
+    fi
+    if [[ -n ${PUBLISH_MV_ANNOUNCE_FIFO:-} ]]; then
+        echo started >"${PUBLISH_MV_ANNOUNCE_FIFO}"
+        [[ -z ${PUBLISH_MV_WAIT_FIFO:-} ]] || read -r _ <"${PUBLISH_MV_WAIT_FIFO}"
+    fi
 fi
 exec mv "$@"
 STUB
@@ -1473,6 +1486,52 @@ cancellation_case TERM
 
 start 'an INT-cancelled build cleans up only what it owns'
 cancellation_case INT
+
+# On the fallback path the output path is briefly absent between the
+# move-aside and promotion. A build cancelled inside that window must
+# restore the previous generation to the output path rather than leaving it
+# only at <staging>.previous.
+fallback_cancellation_case() {
+    local c="${workdir}/build-cancel-fallback"
+    prepare_case "${c}"
+    local rc
+    rc=$(run_build "${c}" PODMAN_STUB_TAG=good PUBLISH_EXCHANGE=never)
+    assert_eq 0 "${rc}" 'exit status priming a good publication'
+
+    local announce="${c}/promote-announce.fifo" wait_fifo="${c}/promote-wait.fifo"
+    mkfifo "${announce}" "${wait_fifo}"
+
+    prepare_case "${c}"
+    start_build_bg "${c}" "${c}/cancelled.out" \
+        PODMAN_STUB_TAG=doomed \
+        PUBLISH_EXCHANGE=never \
+        PUBLISH_MV="${stub_bin}/publish-mv" \
+        PUBLISH_MV_ANNOUNCE_FIFO="${announce}" \
+        PUBLISH_MV_WAIT_FIFO="${wait_fifo}"
+    local build_pid=${bg_pid}
+    fifo_read "${announce}" \
+        'build to announce it reached the fallback promotion move' \
+        "-${build_pid}" || return 1
+    # The output path is now briefly absent; setsid gave the build its own
+    # process group, so this reaches the blocked publish-mv stub too.
+    kill -TERM "-${build_pid}"
+    rc=0
+    wait "${build_pid}" || rc=$?
+
+    assert_eq 143 "${rc}" 'exit status of a fallback build cancelled mid-promotion'
+    assert_published_set "${c}" good \
+        'the previous complete set is restored after cancellation'
+    assert_eq '' "$(previous_dirs "${c}")" \
+        'no .previous directory remains after a restored cancellation'
+    assert_eq '' "$(staging_excluding_previous "${c}")" \
+        'no staging directory remains after a restored cancellation'
+    has_event "${c}/cancelled.out" cancel_restored ||
+        fail 'no cancel_restored record'
+    assert_locks_free "${c}" 'after a restored cancellation'
+}
+
+start 'a TERM-cancelled fallback build restores the previous output'
+fallback_cancellation_case
 
 # --- summary ----------------------------------------------------------------
 

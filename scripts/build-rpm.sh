@@ -120,6 +120,11 @@ download_tmp=
 staging_dir=
 deps_container=
 temp_image=
+# Set to the target's outdir_path once the fallback publish path has moved
+# the previous generation aside, and cleared once promotion or rollback has
+# completed on every branch. Lets cleanup recognize a cancellation inside
+# that window and restore the previous generation to the normal output path.
+fallback_previous=
 
 # Identifies this invocation in the log, and in the container and image names
 # it creates. Derived from the pid and bash's seeded RANDOM; carries no
@@ -185,9 +190,13 @@ reject() {
 # Idempotent, because the INT and TERM handlers fall through to the EXIT
 # handler.
 #
-# A <staging>.previous directory is never touched here. On the fallback path
-# it is the only remaining copy of the last complete output whenever rollback
-# has failed, so removing it would destroy the recovery data.
+# A <staging>.previous directory is never removed here. On the fallback
+# path it is the only remaining copy of the last complete output whenever
+# rollback has failed, so deleting it would destroy the recovery data. If
+# fallback_previous marks this invocation as cancelled inside the fallback
+# path's window — the previous output moved aside but not yet promoted or
+# rolled back — <staging>.previous is instead moved back to the normal
+# output path, restoring it before this invocation's scratch is removed.
 #
 # The container and image are named after build_id, so nothing belonging to a
 # concurrent build or to an unrelated project can be removed here.
@@ -205,6 +214,15 @@ cleanup() {
     if [[ -n ${staging_dir} && -e ${staging_dir} ]]; then
         rm -rf "${staging_dir}"
         removed_staging=yes
+    fi
+    if [[ -n ${fallback_previous} && ! -e ${outdir_path} &&
+        -e ${fallback_previous} ]]; then
+        if mv -T "${fallback_previous}" "${outdir_path}"; then
+            log_event cancel_restored "recoverable_path=${fallback_previous}"
+        else
+            log_event cancel_restore_failed \
+                "recoverable_path=${fallback_previous}"
+        fi
     fi
     if [[ -n ${deps_container} ]]; then
         "${PODMAN}" rm -f "${deps_container}" >/dev/null 2>&1 || true
@@ -225,6 +243,7 @@ cleanup() {
     fi
     download_tmp=
     staging_dir=
+    fallback_previous=
     return 0
 }
 
@@ -744,6 +763,16 @@ validate_staging() {
 # still exits non-zero and the previous complete output is left at
 # <staging>.previous, which cleanup deliberately does not remove.
 #
+# Cancellation on the fallback path: if this process receives INT or TERM
+# after the previous output has been moved aside but before promotion (or
+# rollback) has completed, <outdir> is briefly absent. cleanup recognizes
+# this window via the fallback_previous global, set immediately after the
+# move-aside and cleared once promotion or rollback finishes on every
+# branch, and moves <staging>.previous back to <outdir> before exiting,
+# logging a cancel_restored event. If that restore itself fails, cleanup
+# leaves <staging>.previous in place — it never deletes it — and logs
+# cancel_restore_failed instead.
+#
 # publish_staging: publish staging_dir as outdir_path under an exclusive
 # lock.
 #
@@ -784,9 +813,14 @@ publish_staging() {
     previous="${staging_dir}.previous"
     mv -T "${outdir_path}" "${previous}" ||
         die "could not move the previous output of ${target_name} aside"
+    # The output path is briefly absent from here until promotion (or
+    # rollback) completes. cleanup restores it from ${previous} if this
+    # process is cancelled inside that window.
+    fallback_previous="${previous}"
 
     if "${PUBLISH_MV}" -T "${staging_dir}" "${outdir_path}"; then
         rm -rf "${previous}"
+        fallback_previous=
         log_event published mode=fallback "fallback_reason=${fallback_reason}"
         exec {published_fd}>&-
         return
@@ -795,11 +829,13 @@ publish_staging() {
     log_event publish_fallback_failed "fallback_reason=${fallback_reason}"
     log_event rollback_start "recoverable_path=${previous}"
     if "${PUBLISH_MV}" -T "${previous}" "${outdir_path}"; then
+        fallback_previous=
         log_event rollback_ok
         exec {published_fd}>&-
         die "publication of ${target_name} failed; the previous complete output has been restored"
     fi
 
+    fallback_previous=
     log_event rollback_failed "recoverable_path=${previous}"
     exec {published_fd}>&-
     die "publication of ${target_name} failed and the rollback failed; the previous complete output is preserved at ${previous}"
