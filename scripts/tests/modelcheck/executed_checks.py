@@ -231,14 +231,22 @@ def run_cancelled_build(
     try:
         ready, _, _ = select.select([fd], [], [], 60)
         if not ready:
-            proc.kill()
+            # The build runs in its own session; stop the whole group, stub
+            # included, and reap it.
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
             raise CheckFailure("the container stub never announced its start")
         os.read(fd, 64)
     finally:
         os.close(fd)
 
     os.killpg(proc.pid, signal.SIGTERM)
-    stdout, stderr = proc.communicate(timeout=60)
+    try:
+        stdout, stderr = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
 

@@ -189,7 +189,8 @@ fresh-guest CUSE acceptance plan.
 - Observation: tmt copies an absolute-path image into its own cache,
   `/var/tmp/tmt/testcloud/images/<basename>`, and boots an overlay of that
   copy. The repository's verified image was unchanged after the run.
-  Impact: INV-OVERLAY must hash tmt's cached copy as well as ours.
+  Impact: INV-OVERLAY must hash tmt's cached copy as well as the
+  repository's verified image.
 - Observation: under SELinux enforcing the daemon runs as
   `system_u:system_r:unconfined_service_t:s0` with no AVC denials. The
   package ships no SELinux policy, so SELinux does not confine the daemon;

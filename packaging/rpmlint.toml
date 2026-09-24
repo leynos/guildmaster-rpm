@@ -3,8 +3,8 @@
 Filters = [
     # The spelling dictionary does not know these technical terms; "dev" is
     # the /dev in /dev/guild.
-    'spelling-error .* (jobserver|CUSE|userspace|gm|dev)',
-    # Upstream ships no test suite; %check runs the downstream option test.
+    # The word boundary keeps misspellings such as "devce" reported.
+    'spelling-error .* (jobserver|CUSE|userspace|gm|dev)\b',
     # Debug packages legitimately have no documentation.
     'guildmaster-debug(info|source)\..* no-documentation',
 ]

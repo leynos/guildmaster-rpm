@@ -129,7 +129,8 @@ build never proceeds with unverified bytes.
      `scripts/build-rpm.sh`;
    - the pinned commit, version and release strings duplicated in
      `scripts/tests/test-build-rpm.sh` and
-     `scripts/tests/model_check.py`, which assert against the same
+     `scripts/tests/modelcheck/common.py` (`COMMIT`, `VERSION` and
+     `RELEASE`), which assert against the same
      values so that the offline suite continues to exercise the real
      pin;
    - `Release` back to `1%{?dist}` (see
@@ -301,10 +302,16 @@ summarizes the mechanism.
   `-` makes a missing file harmless) and passes
   `$GUILDMASTER_OPTS` on `ExecStart`. An operator, or Ansible, sets an
   explicit capacity by writing `GUILDMASTER_OPTS="--tokens=2"` there.
-- **Scriptlets.** `%post` runs only `%systemd_post
+- **Scriptlets.** `%post` runs `%systemd_post
   guildmaster.service`, which applies the distribution's preset —
   both Fedora and Rocky Linux leave new services disabled, so
-  installing the package never starts or enables anything. `%preun`
+  installing the package never starts or enables anything. If
+  `/dev/cuse` already exists, because the module was loaded before
+  installation, `%post` also reloads udev's rules and replays a change
+  event for that one device, so it takes the package's group, mode and
+  `systemd` tag at once; without that the service could not start until
+  a reboot. `tests/cuse/preloaded` covers this, and failed before the
+  change. `%preun`
   runs `%systemd_preun guildmaster.service`. `%postun` runs plain
   `%systemd_postun guildmaster.service`, **never**
   `%systemd_postun_with_restart`: restarting the daemon destroys
@@ -782,8 +789,9 @@ image file name, a SHA-256 checksum and a download URL. The
 checksums are recorded (as of 2026-09-21) from the distributions' own
 signed checksum files:
 
-- Rocky Linux 10: `Rocky-10-GenericCloud-Base-10.2-20260525.0
-  .x86_64.qcow2.CHECKSUM`, published beside the image with a detached
+- Rocky Linux 10:
+  `Rocky-10-GenericCloud-Base-10.2-20260525.0.x86_64.qcow2.CHECKSUM`,
+  published beside the image with a detached
   signature (`.CHECKSUM.asc`) from the Rocky Linux 10 release key;
 - Fedora 43: `Fedora-Cloud-43-1.6-x86_64-CHECKSUM`, the clear-signed
   checksum file published beside the image.
@@ -965,9 +973,20 @@ Then, once the packages have been copied into the plan's data directory by hand
 this set-up), a test iteration is:
 
 ```bash
+data=/var/tmp/tmt/my-dev-guest/plans/cuse/data
 tmt -c distro=rocky-10 -c guest_cpus=2 -c guest_memory_mib=2048 \
-    run --id my-dev-guest discover --force execute --force
+    run --id my-dev-guest \
+    --environment "GM_RPM_DIR=${data}/rpms" \
+    --environment "GM_UPGRADE_RPM_DIR=${data}/upgrade" \
+    --environment "GM_TOKENS_CHECK=${data}/check-tokens-option.sh" \
+    --environment "GM_GUEST_FACTS=${data}/guest-facts.txt" \
+    --environment GM_TARGET=rocky-10 \
+    discover --force prepare --force execute --force
 ```
+
+`prepare --force` is what pushes the staged plan data, and with it the
+packages, to the guest; without it the guest keeps whatever it received
+last. `--environment` belongs to `run`, as in `scripts/cuse-guest.sh`.
 
 The guest is destroyed afterwards with `tmt run --id my-dev-guest cleanup`, or,
 as a fallback, by removing the named libvirt domain directly, as
@@ -986,10 +1005,10 @@ _Table 5: environment variables read by the `tests/cuse/*` scripts._
 | `GM_TARGET` | `tests/container/install/test.sh` | Which target's dist tag to expect (`fedora-43` / `rocky-10`). |
 | `GM_MEMBER` | `tests/cuse/accounting/test_accounting.py` | The authorized test user to run clients as (defaults to `gm-member`). |
 
-When `tmt` is driven by hand, these must be supplied on the command line (`tmt
-run --id ... execute --environment GM_RPM_DIR=...`, and so on), and the packages
-must be staged in `<run>/plans/cuse/data/rpms/` by hand, exactly as the
-`stage_rpms` function in `scripts/cuse-guest.sh` does.
+When `tmt` is driven by hand, these must be supplied as `run` options, as in
+the iteration command above, and the packages must be staged in
+`<run>/plans/cuse/data/rpms/` by hand, exactly as the `stage_rpms` function in
+`scripts/cuse-guest.sh` does.
 
 ______________________________________________________________________
 
@@ -1020,9 +1039,12 @@ test:
   (`scenario_inherited_handles`) — the account is tied to the
   process that opened it, but the underlying description outlives
   that process as long as any copy of it is open elsewhere.
-- **Abrupt death.** When a process's last handle is closed — including
-  by the process dying, for example `SIGKILL` — any tokens it still
-  held are returned to the pool (`scenario_abrupt_death`).
+- **Abrupt death.** When a process dies, for example by `SIGKILL`, the
+  tokens it still held return to the pool once no copy of its open file
+  descriptions remains open (`scenario_abrupt_death`). If a child has
+  inherited a handle, the tokens stay held until the child closes it too,
+  as in the inherited-handle case above; a killed holder alone does not
+  free them.
 - **Unmatched or excess writes never inflate the pool.** Writing
   without a matching prior read, or writing back more than was taken,
   never raises the pool above its configured capacity

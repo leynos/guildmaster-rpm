@@ -321,7 +321,8 @@ add_target_assets el10 9.9 "${release}"
 write_sha256sums
 run_verify
 assert_status "${status}" 1
-assert_contains "${SCENARIO}/stderr" 'not' 'a package whose version does not match the tag is refused'
+assert_contains "${SCENARIO}/stderr" "is 9.9-${release}.el10, not ${version}-${release}.el10" \
+    'a package whose version does not match the tag is refused'
 
 # --- reject: wrong release vs tag ---------------------------------------------
 
@@ -330,7 +331,8 @@ add_target_assets el10 "${version}" 9
 write_sha256sums
 run_verify
 assert_status "${status}" 1
-assert_contains "${SCENARIO}/stderr" 'not' 'a package whose release does not match the tag is refused'
+assert_contains "${SCENARIO}/stderr" "is ${version}-9.el10, not ${version}-${release}.el10" \
+    'a package whose release does not match the tag is refused'
 
 # --- reject: an epoch ----------------------------------------------------------
 
