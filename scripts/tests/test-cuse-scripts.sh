@@ -294,6 +294,47 @@ if [[ -f ${SCENARIO}/cache/evidence/cuse-rocky-10-release.txt && ! -e ${SCENARIO
     ok 'post-publication evidence is kept apart from candidate evidence'
 else not_ok 'evidence kinds are mixed'; fi
 
+# source_tree_dirty must be "no" only on proof of a clean tree: a failing
+# git status is "unknown", and a long list of changes is "yes" however much
+# output git writes.
+new_guest_scenario guest_evidence_git_fails
+printf '#!/bin/sh\nexit 128\n' >"${SCENARIO}/git"
+chmod +x "${SCENARIO}/git"
+run_guest GIT="${SCENARIO}/git"
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
+    'source_tree_dirty: unknown' 'a failing git status is recorded as unknown'
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
+    'source_commit: unknown' 'a failing git rev-parse is recorded as unknown'
+
+new_guest_scenario guest_evidence_many_changes
+cat >"${SCENARIO}/git" <<'STUB'
+#!/usr/bin/env bash
+case " $* " in
+*' status '*) for ((i = 0; i < 20000; i++)); do echo " M file-${i}"; done ;;
+*) echo 0123456789abcdef0123456789abcdef01234567 ;;
+esac
+STUB
+chmod +x "${SCENARIO}/git"
+run_guest GIT="${SCENARIO}/git"
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
+    'source_tree_dirty: yes' 'a tree with many changes is recorded as dirty'
+
+new_guest_scenario guest_evidence_clean_tree
+cat >"${SCENARIO}/git" <<'STUB'
+#!/usr/bin/env bash
+case " $* " in
+*' status '*) ;;
+*) echo 0123456789abcdef0123456789abcdef01234567 ;;
+esac
+STUB
+chmod +x "${SCENARIO}/git"
+run_guest GIT="${SCENARIO}/git"
+assert_status "${status}" 0
+assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
+    'source_tree_dirty: no' 'a clean tree is recorded as clean'
+
 new_guest_scenario guest_wrong_image
 chmod u+w "${SCENARIO}/image.qcow2"
 echo tampered >>"${SCENARIO}/image.qcow2"

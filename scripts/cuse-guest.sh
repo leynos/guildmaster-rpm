@@ -48,6 +48,7 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 [[ ${rpm_dir} == /* ]] || rpm_dir=${repo_root}/${rpm_dir}
 
 : "${TMT:=tmt}"
+: "${GIT:=git}"
 : "${FLOCK:=flock}"
 : "${SHA256SUM:=sha256sum}"
 : "${QEMU_IMG:=qemu-img}"
@@ -292,6 +293,25 @@ verify_overlay() {
 
 # write_evidence: record the acceptance evidence for a successful run.
 #
+# source_tree_state: whether the source tree has uncommitted changes.
+#
+# Prints "yes" when git status reports changes, "no" only when git status
+# succeeds with no output, and "unknown" when git status fails, so release
+# evidence never claims a clean tree without proof. The output is captured
+# whole rather than piped to "grep -q", whose early exit could SIGPIPE git
+# and turn a dirty tree into a failed, and therefore misreported, pipeline.
+# Always returns 0.
+source_tree_state() {
+    local changes
+    if ! changes=$("${GIT}" -C "${repo_root}" status --porcelain 2>/dev/null); then
+        echo unknown
+    elif [[ -n ${changes} ]]; then
+        echo yes
+    else
+        echo no
+    fi
+}
+
 # Writes EVIDENCE_DIR/cuse-<target>-<EVIDENCE_KIND>.txt, summarising the
 # tier, image, guest resources, tested packages, and (when present) the
 # upgrade fixture and guest facts. Always returns 0.
@@ -304,8 +324,8 @@ write_evidence() {
         echo "target: ${target}"
         echo "plan: ${PLAN}"
         echo "result: passed"
-        echo "source_commit: $(git -C "${repo_root}" rev-parse HEAD 2>/dev/null || echo unknown)"
-        echo "source_tree_dirty: $(git -C "${repo_root}" status --porcelain 2>/dev/null | grep -q . && echo yes || echo no)"
+        echo "source_commit: $("${GIT}" -C "${repo_root}" rev-parse HEAD 2>/dev/null || echo unknown)"
+        echo "source_tree_dirty: $(source_tree_state)"
         echo "image: $(basename "${image}")"
         echo "image_sha256: ${image_sha256}"
         echo "image_unchanged_after_run: yes"
