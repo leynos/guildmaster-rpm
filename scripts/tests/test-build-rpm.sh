@@ -29,7 +29,8 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "${script_dir}/../.." && pwd)
-under_test="${repo_root}/scripts/build-rpm.sh"
+: "${BUILD_RPM_UNDER_TEST:=${repo_root}/scripts/build-rpm.sh}"
+under_test=${BUILD_RPM_UNDER_TEST}
 clean_under_test="${repo_root}/scripts/clean.sh"
 
 # Must agree with the script's own pins; the spec is checked against these by
@@ -504,6 +505,23 @@ if [[ -n ${ASIDE_MV_ANNOUNCE_FIFO:-} ]]; then
 fi
 STUB
 chmod +x "${stub_bin}/aside-mv"
+
+# flock-announce: wraps the real flock. When invoked with "-x" — the only
+# exclusive flock call build-rpm.sh makes is on the per-target publication
+# lock — it announces the request on ${FLOCK_ANNOUNCE_FIFO} before executing
+# the real flock, so a test can prove a build actually reached and requested
+# that lock, rather than merely being slow to get there.
+cat >"${stub_bin}/flock-announce" <<'STUB'
+#!/usr/bin/env bash
+set -u
+if [[ ${1:-} == -x && -n ${FLOCK_ANNOUNCE_FIFO:-} ]]; then
+    exec {announce_fd}<>"${FLOCK_ANNOUNCE_FIFO}"
+    printf 'requesting\n' >&"${announce_fd}"
+    exec {announce_fd}>&-
+fi
+exec flock "$@"
+STUB
+chmod +x "${stub_bin}/flock-announce"
 
 # A non-interactive shell starts an asynchronous job with SIGINT and SIGQUIT
 # ignored, and an ignored disposition is inherited across exec and cannot be
@@ -1231,7 +1249,9 @@ concurrent_publish_case() {
     prepare_case "${c}"
     local announce_a="${c}/announce-a.fifo" wait_a="${c}/wait-a.fifo"
     local announce_b="${c}/announce-b.fifo" wait_b="${c}/wait-b.fifo"
-    mkfifo "${announce_a}" "${wait_a}" "${announce_b}" "${wait_b}"
+    local lock_a="${c}/lock-a.fifo" lock_b="${c}/lock-b.fifo"
+    mkfifo "${announce_a}" "${wait_a}" "${announce_b}" "${wait_b}" \
+        "${lock_a}" "${lock_b}"
 
     local rc
     rc=$(run_build "${c}" PODMAN_STUB_TAG=previous)
@@ -1241,12 +1261,16 @@ concurrent_publish_case() {
     start_build_bg "${c}" "${c}/a.out" \
         PODMAN_STUB_TAG=build-a \
         PREPUBLISH_ANNOUNCE_FIFO="${announce_a}" \
-        PREPUBLISH_WAIT_FIFO="${wait_a}"
+        PREPUBLISH_WAIT_FIFO="${wait_a}" \
+        FLOCK="${stub_bin}/flock-announce" \
+        FLOCK_ANNOUNCE_FIFO="${lock_a}"
     local pid_a=${bg_pid}
     start_build_bg "${c}" "${c}/b.out" \
         PODMAN_STUB_TAG=build-b \
         PREPUBLISH_ANNOUNCE_FIFO="${announce_b}" \
-        PREPUBLISH_WAIT_FIFO="${wait_b}"
+        PREPUBLISH_WAIT_FIFO="${wait_b}" \
+        FLOCK="${stub_bin}/flock-announce" \
+        FLOCK_ANNOUNCE_FIFO="${lock_b}"
     local pid_b=${bg_pid}
 
     fifo_read "${announce_a}" 'build A to announce the pre-publication barrier' \
@@ -1274,9 +1298,28 @@ concurrent_publish_case() {
     fifo_read "${holder_ready}" 'external lock holder to take the publication lock' \
         "${holder_pid}" "-${pid_a}" "-${pid_b}" || return 1
 
+    # Hold both lock-request FIFOs open before releasing the builds. The
+    # wrapper's line would otherwise be discarded if a build announced while
+    # this test was still reading the other build's FIFO.
+    local lock_a_fd lock_b_fd
+    exec {lock_a_fd}<>"${lock_a}" {lock_b_fd}<>"${lock_b}"
+
     # Release both builds into the publication lock at once.
     echo go >"${wait_a}" &
     echo go >"${wait_b}" &
+
+    # Wait until each build has actually requested the publication lock.
+    # Without this, the assertions below could run before either build had
+    # left the barrier, and would pass even for a script that took no
+    # publication lock at all.
+    local requested=yes
+    fifo_read "${lock_a}" 'build A to request the publication lock' \
+        "${holder_pid}" "-${pid_a}" "-${pid_b}" || requested=no
+    [[ ${requested} == no ]] ||
+        fifo_read "${lock_b}" 'build B to request the publication lock' \
+            "${holder_pid}" "-${pid_a}" "-${pid_b}" || requested=no
+    exec {lock_a_fd}<&- {lock_b_fd}<&-
+    [[ ${requested} == yes ]] || return 1
 
     # Both are now past the barrier and blocked on the lock this test holds,
     # so the published directory must still be exactly the previous
@@ -1605,3 +1648,44 @@ if [[ ${tests_failed} -gt 0 ]]; then
     exit 1
 fi
 echo "BUILD-RPM UNIT TESTS OK (${tests_run} cases)"
+
+# --- non-vacuity: a mutant must make this suite fail -------------------------
+#
+# Only run from the top-level invocation, and only once the suite has passed
+# against the real script. The mutant drops the per-target publication lock
+# from publish_staging; the concurrent-publication case must then fail on an
+# assertion, because neither build ever requests that lock.
+if [[ ${MUTATION_CHECK:-0} -eq 0 ]]; then
+    echo
+    echo "non-vacuity: checking that a mutant makes this suite fail"
+    mutant=${workdir}/no-publication-lock.sh
+    # shellcheck disable=SC2016  # literal source text, not an expansion
+    pattern='"${FLOCK}" -x "${published_fd}"'
+    if [[ $(grep -cF -- "${pattern}" "${repo_root}/scripts/build-rpm.sh") -ne 1 ]]; then
+        echo "FAIL: mutant pattern '${pattern}' does not match exactly one line" >&2
+        exit 1
+    fi
+    grep -vF -- "${pattern}" "${repo_root}/scripts/build-rpm.sh" >"${mutant}"
+    chmod +x "${mutant}"
+    mutant_rc=0
+    # The mutant lives outside the tree, so its inputs are pointed back at
+    # this tree explicitly. A short FIFO_TIMEOUT keeps the rerun bounded:
+    # without the lock call, the announcing wrapper never fires and the
+    # handshake is expected to time out rather than hang for the default.
+    env MUTATION_CHECK=1 FIFO_TIMEOUT=5 BUILD_RPM_UNDER_TEST="${mutant}" \
+        SPEC_FILE="${repo_root}/guildmaster.spec" \
+        PACKAGING_DIR="${repo_root}/packaging" \
+        PATCHES_DIR="${repo_root}/patches" \
+        bash "$0" >"${workdir}/mutant.out" 2>&1 || mutant_rc=$?
+    # A catch is the lock case's own failed assertion together with a failed
+    # rerun, never a bare non-zero exit, which a harness crash could produce.
+    if [[ ${mutant_rc} -ne 0 ]] &&
+        grep -qF 'FAIL: timed out after 5s waiting for build A to request the publication lock' \
+            "${workdir}/mutant.out"; then
+        echo "ok: mutant no-publication-lock: suite caught it, exit ${mutant_rc}"
+    else
+        echo "FAIL: mutant no-publication-lock: not caught, exit ${mutant_rc}" >&2
+        sed 's/^/    | /' "${workdir}/mutant.out" | tail -n 20 >&2
+        exit 1
+    fi
+fi
