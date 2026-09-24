@@ -75,6 +75,15 @@ bash %{SOURCE7} %{buildroot}%{_bindir}/guildmaster
 # Applies the distribution preset, which leaves the service disabled. The
 # service is never started here.
 %systemd_post guildmaster.service
+# A /dev/cuse that already exists, because cuse was loaded before this
+# package was installed, has not seen 70-guildmaster.rules: it keeps the
+# default root-only mode and lacks the systemd tag the unit depends on.
+# Replay udev for that one device. Where udev is not running, as in
+# containers and image builds, this does nothing.
+if [ -c /dev/cuse ] && [ -x /usr/bin/udevadm ]; then
+    /usr/bin/udevadm control --reload >/dev/null 2>&1 || :
+    /usr/bin/udevadm trigger --action=change --name-match=/dev/cuse --settle >/dev/null 2>&1 || :
+fi
 
 %preun
 %systemd_preun guildmaster.service

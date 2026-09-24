@@ -75,7 +75,9 @@ systemd's stock template, so that starting the service, by hand or at boot,
 loads the module on demand. No `modules-load.d` file is shipped: a host that
 leaves the service disabled never loads CUSE because of this package. An
 earlier design that used `modules-load.d` could not start after installation
-without a reboot, because that directory is only read at boot.
+without a reboot, because that directory is only read at boot. For the same
+reason, when `/dev/cuse` already exists at installation, `%post` replays udev
+for that device alone, so the rule and the tag apply without a reboot.
 
 The package cannot depend on "the CUSE module for the running kernel". On
 both distributions `cuse.ko` is in `kernel-modules-extra`, which minimal and
