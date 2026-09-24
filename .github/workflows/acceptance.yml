@@ -53,6 +53,8 @@ jobs:
         with:
           name: evidence-cuse-${{ matrix.target }}
           path: .build/evidence/
+          # Everything under .build/ counts as hidden to upload-artifact.
+          include-hidden-files: true
           if-no-files-found: error
 
       - name: Upload diagnostics on failure

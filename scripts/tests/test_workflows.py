@@ -508,6 +508,28 @@ def check_composite_setup_container(bundle: Bundle) -> None:
     assert "enable-linger" in raw, "setup-container-tier must enable lingering"
 
 
+def check_hidden_paths_uploaded(bundle: Bundle) -> None:
+    """Uploads of paths under a hidden directory opt in to hidden files.
+
+    ``actions/upload-artifact`` v4.4 and later skips hidden files and every
+    file inside a directory whose name starts with a dot, so an upload of
+    ``.build/...`` finds nothing unless ``include-hidden-files`` is true.
+    """
+    for name, doc in bundle.docs.items():
+        for job_name, label, step in iter_steps(doc):
+            if not step.get("uses", "").startswith("actions/upload-artifact@"):
+                continue
+            with_ = step.get("with", {})
+            paths = str(with_.get("path", "")).split()
+            hidden = [p for p in paths if re.search(r"(^|/)\.[^/.]", p.lstrip("!"))]
+            if not hidden:
+                continue
+            assert with_.get("include-hidden-files") is True, (
+                f"{name}:{job_name}:{label} uploads {hidden} "
+                "without include-hidden-files: true"
+            )
+
+
 UV_MAKE_TARGET = re.compile(
     r"make\b[^\n]*?[\s\"'](lint|unit|test-(?:\$\{TARGET\}|rocky-10|fedora-43))(?![\w-])"
 )
@@ -582,6 +604,7 @@ CHECKS: list[tuple[str, Callable[[Bundle], None]]] = [
     ("setup-container-tier preflight", check_composite_setup_container),
     ("logs under RUNNER_TEMP", check_logs_under_runner_temp),
     ("uv installed wherever make needs it", check_uv_available_for_make),
+    ("hidden upload paths include hidden files", check_hidden_paths_uploaded),
 ]
 
 
@@ -649,6 +672,11 @@ def _drop_setup_uv_from_ci(raw: str) -> str:
     )
 
 
+def _drop_include_hidden_from_release(raw: str) -> str:
+    """Remove include-hidden-files from one release.yml evidence upload."""
+    return raw.replace("          include-hidden-files: true\n", "", 1)
+
+
 MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]] = [
     (
         "acceptance.yml gains a pull_request trigger",
@@ -697,6 +725,12 @@ MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]]
         "ci",
         _drop_setup_uv_from_ci,
         check_uv_available_for_make,
+    ),
+    (
+        "a release evidence upload loses include-hidden-files",
+        "release",
+        _drop_include_hidden_from_release,
+        check_hidden_paths_uploaded,
     ),
 ]
 
