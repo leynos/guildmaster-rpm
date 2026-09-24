@@ -1271,6 +1271,14 @@ set-up step opens `/dev/kvm` to the runner user with a udev rule, which is
 GitHub's documented method for an ephemeral machine and must not be copied
 to a shared host.
 
+tmt is installed with `pipx`, so testcloud and the libvirt Python bindings
+live in tmt's own environment, not the system `python3`. The CUSE set-up
+action exports that environment's interpreter as `PYTHON` for the rest of
+the job. The preflight checks `PYTHON`, and `scripts/cuse-guest.sh` runs the
+preflight again before provisioning. Before this export existed, that second
+run checked the system `python3` and failed on the first hosted acceptance
+run.
+
 Verified guest images are cached with `actions/cache`, keyed on
 `fixtures/cuse/images.tsv`. `scripts/cuse-image.sh` still checks the bytes on
 every use, so a bad cache entry is replaced rather than booted. Overlays are

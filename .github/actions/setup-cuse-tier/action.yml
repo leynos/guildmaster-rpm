@@ -33,9 +33,14 @@ runs:
         echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
 
     # testcloud and the libvirt bindings live in pipx's tmt environment,
-    # which the system python3 cannot import from.
-    - name: Preflight
+    # which the system python3 cannot import from. The interpreter is
+    # exported for the rest of the job, because scripts/cuse-guest.sh runs
+    # the preflight again and would otherwise check the system python3.
+    - name: Use tmt's Python for the preflight
       shell: bash
       run: |
-        PYTHON="$(dirname "$(readlink -f "$(command -v tmt)")")/python" \
-          scripts/virt-preflight.sh
+        echo "PYTHON=$(dirname "$(readlink -f "$(command -v tmt)")")/python" >> "$GITHUB_ENV"
+
+    - name: Preflight
+      shell: bash
+      run: scripts/virt-preflight.sh
