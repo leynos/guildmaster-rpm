@@ -768,6 +768,14 @@ state. `cleanup` then removes only this invocation's own container
 (named `gm-fx-<target>-<pid>-<random>`); the work directory is kept
 on failure, or with `KEEP_WORKDIR=1`, and removed otherwise.
 
+The container counts as this invocation's own from the moment
+`podman run` is invoked, not from when it returns. Bash runs a trap
+only once the running command returns, so a cancellation during
+start-up would otherwise reach `cleanup` before the start was
+recorded, and leave the container behind. Ownership is given up only
+when a failed start is shown, by `podman container exists`, to have
+created nothing.
+
 ### Run directories under `/var/tmp/tmt`
 
 `tmt` copies the entire fmf (Flexible Metadata Format) tree into

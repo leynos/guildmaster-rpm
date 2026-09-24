@@ -129,14 +129,15 @@ capture_diagnostics() {
 
 # cleanup: remove this run's container and reclaim its working directory.
 #
-# Invoked from the EXIT, INT and TERM traps. Captures diagnostics before
-# removing the container when the run did not succeed, then force-removes
-# the container. Removes work_dir unless the run failed or KEEP_WORKDIR is
+# Invoked from the EXIT, INT and TERM traps. Unless container_started is
+# "no", captures diagnostics before removing the container when the run did
+# not succeed, then force-removes the container by this invocation's name;
+# a "pending" start that created nothing makes that removal a no-op. Removes work_dir unless the run failed or KEEP_WORKDIR is
 # set. Exits the script with the original status.
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
-    if [[ ${container_started} == yes ]]; then
+    if [[ ${container_started} != no ]]; then
         if [[ ${succeeded} != yes ]]; then
             capture_diagnostics
         fi
@@ -273,15 +274,27 @@ ensure_fixture_image() {
 # --cgroupns=private and --user=0, bind-mounting work_dir at the same
 # path, and sets container_started=yes. Calls die, which exits the
 # script, if Podman cannot start it.
+#
+# container_started is set to "pending" before Podman runs, because bash
+# defers a trap until the running command returns: a signal delivered while
+# Podman creates the container runs cleanup before any later line could
+# record it, and the uniquely named container would be left behind. The
+# marker returns to "no" only when a failed start is shown to have created
+# no container.
 start_container() {
-    "${PODMAN}" run --detach \
+    container_started=pending
+    if ! "${PODMAN}" run --detach \
         --name "${name}" \
         --systemd=always \
         --cgroupns=private \
         --user=0 \
         --volume "${work_dir}:${work_dir}:z" \
-        "${fixture_image}" >/dev/null ||
+        "${fixture_image}" >/dev/null; then
+        if ! "${PODMAN}" container exists "${name}"; then
+            container_started=no
+        fi
         die "could not start the fixture container"
+    fi
     container_started=yes
     log_event container_started "image=${fixture_image}"
 }

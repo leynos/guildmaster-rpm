@@ -109,7 +109,15 @@ case $1 in
 info) answer info ;;
 image) exit "$(answer image_exists_status || echo 0)" ;;
 build) exit "$(answer build_status || echo 0)" ;;
-run) exit "$(answer run_status || echo 0)" ;;
+run)
+    if [[ -p ${SCENARIO}/run.started ]]; then
+        # Cancellation during start-up: announce, then block until killed.
+        echo started >"${SCENARIO}/run.started"
+        read -r _ <"${SCENARIO}/run.never"
+    fi
+    exit "$(answer run_status || echo 0)"
+    ;;
+container) exit "$(answer container_exists_status || echo 1)" ;;
 rm | logs) exit 0 ;;
 inspect)
     case $* in
@@ -367,6 +375,37 @@ echo 125 >"${SCENARIO}/run_status"
 run_fixture
 assert_status "${status}" 1
 assert_lacks "${SCENARIO}/podman.log" 'rm ' 'nothing is removed when nothing was started'
+
+# A failed start that nonetheless created the container still owns it: the
+# container is removed by this invocation's name.
+new_scenario container_start_fails_after_create
+echo 125 >"${SCENARIO}/run_status"
+echo 0 >"${SCENARIO}/container_exists_status"
+run_fixture
+assert_status "${status}" 1
+assert_only_own_container_removed
+
+# Cancellation while Podman is still starting the container: bash runs the
+# TERM trap only once "podman run" returns, so the container this invocation
+# may have created must already be marked as its own, and removed.
+new_scenario cancelled_during_start
+mkfifo "${SCENARIO}/run.started" "${SCENARIO}/run.never"
+exec {never_fd}<>"${SCENARIO}/run.never"
+setsid env PODMAN="${stub_dir}/podman" TMT="${stub_dir}/tmt" PREFLIGHT=true \
+    CACHE_DIR="${SCENARIO}/cache" WORK_ROOT="${SCENARIO}/work" \
+    "${fixture_script}" fedora-43 "${pinned}" "${SCENARIO}/rpms" \
+    >"${SCENARIO}/out" 2>&1 &
+fixture_pid=$!
+if fifo_read "${SCENARIO}/run.started" 'podman run to announce it started' "-${fixture_pid}"; then
+    kill -TERM -- "-${fixture_pid}"
+    status=0
+    wait "${fixture_pid}" || status=$?
+    assert_status "${status}" 143
+    assert_only_own_container_removed
+else
+    wait "${fixture_pid}" 2>/dev/null || true
+fi
+exec {never_fd}>&-
 
 # Cancellation: hold the run inside tmt, deliver TERM to the process group as
 # a terminal or CI runner would, and check that the container is removed.
