@@ -1,7 +1,7 @@
 """Mutations that should each make one named check fail.
 
-Each mutator rewrites one workflow's raw text to remove or invert a critical
-guard. :data:`MUTATIONS` pairs a mutator with the check from :mod:`.checks`
+Each mutator rewrites one workflow's or composite action's raw text to
+remove or invert a critical guard. :data:`MUTATIONS` pairs a mutator with the check from :mod:`.checks`
 that must catch it, exercising the checks themselves. See
 :mod:`workflowcheck` for how mutation checks fit into the check as a whole.
 """
@@ -83,6 +83,17 @@ def _drop_setup_uv_from_ci(raw: str) -> str:
     )
 
 
+def _drop_setup_uv_from_container_tier(raw: str) -> str:
+    """Remove the setup-uv step from the setup-container-tier action."""
+    return raw.replace(
+        "    - name: Install uv\n"
+        "      uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e"
+        " # v6.8.0\n",
+        "",
+        1,
+    )
+
+
 def _drop_include_hidden_from_release(raw: str) -> str:
     """Remove include-hidden-files from one release.yml evidence upload."""
     return raw.replace("          include-hidden-files: true\n", "", 1)
@@ -135,6 +146,12 @@ MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]]
         "ci lint-and-unit loses its uv set-up",
         "ci",
         _drop_setup_uv_from_ci,
+        check_uv_available_for_make,
+    ),
+    (
+        "setup-container-tier loses its uv set-up",
+        "setup-container-tier",
+        _drop_setup_uv_from_container_tier,
         check_uv_available_for_make,
     ),
     (

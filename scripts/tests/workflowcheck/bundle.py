@@ -131,34 +131,41 @@ def load_bundle() -> Bundle:
 
 
 def mutate_workflow(bundle: Bundle, name: str, mutator: Callable[[str], str]) -> Bundle:
-    """Return a copy of ``bundle`` with one workflow's raw text mutated.
+    """Return a copy of ``bundle`` with one workflow's or action's text mutated.
 
     Parameters
     ----------
     bundle : Bundle
         The bundle to copy.
     name : str
-        The short name of the workflow to mutate (a key of ``bundle.raws``).
+        The short name of the workflow or composite action to mutate (a key
+        of ``bundle.raws`` or of ``bundle.action_raws``).
     mutator : Callable[[str], str]
-        A function that transforms the workflow's raw text.
+        A function that transforms the file's raw text.
 
     Returns
     -------
     Bundle
-        A new bundle with the named workflow's text mutated and reparsed;
-        every other workflow and action is unchanged.
+        A new bundle with the named file's text mutated and reparsed; every
+        other workflow and action is unchanged.
 
     Raises
     ------
     AssertionError
-        If ``mutator`` did not actually change the text, which would mean
-        the mutation missed its target and the mutant would be vacuous.
+        If ``name`` names no workflow or action, or ``mutator`` did not
+        actually change the text, which would mean the mutation missed its
+        target and the mutant would be vacuous.
     """
-    new_raw = mutator(bundle.raws[name])
-    assert new_raw != bundle.raws[name], f"mutator for {name!r} made no change"
-    new_raws = dict(bundle.raws)
-    new_raws[name] = new_raw
-    return build_bundle(new_raws, bundle.action_raws)
+    in_workflows = name in bundle.raws
+    assert in_workflows or name in bundle.action_raws, f"no file named {name!r}"
+    source = bundle.raws if in_workflows else bundle.action_raws
+    new_raw = mutator(source[name])
+    assert new_raw != source[name], f"mutator for {name!r} made no change"
+    changed = dict(source)
+    changed[name] = new_raw
+    if in_workflows:
+        return build_bundle(changed, bundle.action_raws)
+    return build_bundle(bundle.raws, changed)
 
 
 def get_on(doc: dict[str, Any]) -> dict[str, Any]:
