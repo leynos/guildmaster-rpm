@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Offline tests for scripts/virt-preflight.sh.
 #
-# No real tmt, libvirt or virtual provisioner: TMT, VIRSH and PYTHON are
-# stubs that answer from per-scenario control files. df is not a seam, so
-# the disk-space failure case is driven by setting MIN_FREE_MIB absurdly
-# high instead of faking free space; /dev/null stands in for /dev/kvm (it is
-# a real, readable and writable character device) wherever a passing
-# kvm_device check is wanted.
+# No real tmt, libvirt or virtual provisioner: TMT, VIRSH, PYTHON and DF are
+# stubs that answer from per-scenario control files. The disk-space-too-low
+# case is still driven by setting MIN_FREE_MIB absurdly high instead of
+# faking free space; the DF stub only intervenes to make df itself fail or
+# print unparsable output. /dev/null stands in for /dev/kvm (it is a real,
+# readable and writable character device) wherever a passing kvm_device
+# check is wanted.
 #
 # SCRIPT_UNDER_TEST points the whole suite at a script under test; it
 # defaults to the real script, and is also used at the end of this file to
@@ -113,6 +114,20 @@ EOF
 esac
 exit 0
 STUB
+
+cat >"${stub_dir}/df" <<'STUB'
+#!/usr/bin/env bash
+set -u
+if [[ -f ${SCENARIO}/df_fails ]]; then
+    echo 'df: cannot read table of mounted filesystems' >&2
+    exit 1
+fi
+if [[ -f ${SCENARIO}/df_garbage ]]; then
+    echo 'not a number'
+    exit 0
+fi
+exec /bin/df "$@"
+STUB
 chmod +x "${stub_dir}"/*
 
 # new_scenario <name>: a scenario directory with the cache and work root in
@@ -130,6 +145,7 @@ new_scenario() {
 run_preflight() {
     status=0
     env TMT="${stub_dir}/tmt" VIRSH="${stub_dir}/virsh" PYTHON="${stub_dir}/python3" \
+        DF="${stub_dir}/df" \
         KVM_DEVICE=/dev/null IMAGE_CACHE_DIR="${SCENARIO}/cache" \
         TMT_WORKDIR_ROOT="${SCENARIO}/workdir" MIN_FREE_MIB=1 "$@" \
         "${SCRIPT_UNDER_TEST}" >"${SCENARIO}/stdout" 2>"${SCENARIO}/stderr" || status=$?
@@ -229,6 +245,34 @@ if [[ $(grep -c '^preflight_event check=disk_space status=fail' "${SCENARIO}/std
 else not_ok 'disk_space fail records missing for one of the two directories'; fi
 assert_contains "${SCENARIO}/stdout" 'required_mib=9999999999' 'the required minimum is reported'
 
+# --- reject: df itself fails -----------------------------------------------------
+
+new_scenario preflight_df_fails
+touch "${SCENARIO}/df_fails"
+run_preflight
+assert_status "${status}" 1
+if [[ $(grep -c '^preflight_event check=disk_space status=fail' "${SCENARIO}/stdout") -eq 2 ]]; then
+    ok 'disk_space fails for both directories when df itself fails'
+else not_ok 'disk_space fail records missing for one of the two directories'; fi
+assert_record tmt ok 'other checks still run after df fails'
+assert_record kvm_domains ok 'other checks still run after df fails'
+assert_contains "${SCENARIO}/stdout" 'df failed or produced unparsable output' \
+    'the df-failure detail is reported'
+
+# --- reject: df prints unparsable output ------------------------------------------
+
+new_scenario preflight_df_garbage
+touch "${SCENARIO}/df_garbage"
+run_preflight
+assert_status "${status}" 1
+if [[ $(grep -c '^preflight_event check=disk_space status=fail' "${SCENARIO}/stdout") -eq 2 ]]; then
+    ok 'disk_space fails for both directories when df prints unparsable output'
+else not_ok 'disk_space fail records missing for one of the two directories'; fi
+assert_record tmt ok 'other checks still run after df prints garbage'
+assert_record kvm_domains ok 'other checks still run after df prints garbage'
+assert_contains "${SCENARIO}/stdout" 'df failed or produced unparsable output' \
+    'the unparsable-output detail is reported'
+
 # --- reject: everything fails ---------------------------------------------------
 
 new_scenario preflight_all_fail
@@ -302,18 +346,34 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
 
     # check_mutant <label> [extra env assignments...]: rerun this suite
     # against a mutant script and record whether it failed as expected.
+    #
+    # Invoked via "bash", not "$0" alone: a mutant copy is chmod +x by
+    # make_mutant, but running it bare would still let a harness crash or a
+    # non-executable $0 (exit 126) masquerade as "mutant caught" purely from
+    # a nonzero exit. The rerun's own summary line is parsed instead, and is
+    # only accepted as a genuine catch when it reports at least one passed
+    # and at least one failed assertion; a missing summary line (the rerun
+    # never got that far) is itself a mutant-check failure, not a pass.
     check_mutant() {
         local label=$1
         shift
         local out=${mutant_dir}/${label}.out
         local rc=0
-        env MUTATION_CHECK=1 "$@" "$0" >"${out}" 2>&1 || rc=$?
-        local summary
-        summary=$(grep '^virt-preflight tests:' "${out}" | tail -n 1)
-        if [[ ${rc} -ne 0 ]]; then
-            echo "ok: mutant ${label}: suite failed as expected (${summary:-no summary line}), exit ${rc}"
+        env MUTATION_CHECK=1 "$@" bash "$0" >"${out}" 2>&1 || rc=$?
+        local summary mpassed mfailed
+        summary=$(grep '^virt-preflight tests:' "${out}" | tail -n 1) || true
+        if [[ ${summary} =~ ^virt-preflight\ tests:\ ([0-9]+)\ passed,\ ([0-9]+)\ failed$ ]]; then
+            mpassed=${BASH_REMATCH[1]}
+            mfailed=${BASH_REMATCH[2]}
         else
-            echo "FAIL: mutant ${label}: suite still passed (${summary:-no summary line})" >&2
+            echo "FAIL: mutant ${label}: no summary line was produced (exit ${rc})" >&2
+            mutant_status=1
+            return
+        fi
+        if [[ ${mfailed} -ge 1 && ${mpassed} -ge 1 ]]; then
+            echo "ok: mutant ${label}: suite caught it (${summary}), exit ${rc}"
+        else
+            echo "FAIL: mutant ${label}: suite reported no failed assertions (${summary}), exit ${rc}" >&2
             mutant_status=1
         fi
     }

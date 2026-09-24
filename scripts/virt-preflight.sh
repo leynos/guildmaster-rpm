@@ -22,6 +22,7 @@ set -euo pipefail
 : "${VIRSH:=virsh}"
 : "${PYTHON:=python3}"
 : "${KVM_DEVICE:=/dev/kvm}"
+: "${DF:=df}"
 : "${IMAGE_CACHE_DIR:=${XDG_CACHE_HOME:-${HOME}/.cache}/guildmaster-rpm/images}"
 : "${TMT_WORKDIR_ROOT:=/var/tmp/tmt}"
 # Two ~600 MiB base images, plus overlays and tmt run directories.
@@ -94,18 +95,33 @@ fi
 # free_mib <path>: print the free space in MiB on <path>'s filesystem.
 #
 # Walks up from <path> to the nearest existing ancestor directory and
-# prints df's available space, in mebibytes, for it.
+# prints DF's available space, in mebibytes, for it. Prints nothing and
+# returns non-zero when DF fails or its output cannot be parsed as an
+# integer, so a failing or garbled DF is reported as a failed check
+# instead of aborting the script under set -e.
 free_mib() {
-    local dir=$1
+    local dir=$1 raw avail df_status
     while [[ ! -d ${dir} ]]; do dir=$(dirname "${dir}"); done
-    df --output=avail -m "${dir}" | tail -n 1 | tr -d ' '
+    if raw=$("${DF}" --output=avail -m "${dir}" 2>/dev/null); then
+        df_status=0
+    else
+        df_status=$?
+    fi
+    avail=$(tail -n 1 <<<"${raw}" | tr -d ' ')
+    if [[ ${df_status} -ne 0 || ! ${avail} =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    printf '%s\n' "${avail}"
 }
 for dir in "${IMAGE_CACHE_DIR}" "${TMT_WORKDIR_ROOT}"; do
-    available=$(free_mib "${dir}")
-    if ((available >= MIN_FREE_MIB)); then
-        record disk_space ok "path=${dir}" "free_mib=${available}"
+    if available=$(free_mib "${dir}"); then
+        if ((available >= MIN_FREE_MIB)); then
+            record disk_space ok "path=${dir}" "free_mib=${available}"
+        else
+            record disk_space fail "path=${dir}" "free_mib=${available}" "required_mib=${MIN_FREE_MIB}"
+        fi
     else
-        record disk_space fail "path=${dir}" "free_mib=${available}" "required_mib=${MIN_FREE_MIB}"
+        record disk_space fail "path=${dir}" 'detail="df failed or produced unparsable output"'
     fi
 done
 

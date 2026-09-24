@@ -604,7 +604,7 @@ if [[ ${MUTATION_CHECK:-0} -eq 0 && ${suite_status} -eq 0 ]]; then
         local rc=0
         env MUTATION_CHECK=1 "$@" bash "$0" >"${out}" 2>&1 || rc=$?
         local summary mpassed mfailed
-        summary=$(grep '^release script tests:' "${out}" | tail -n 1)
+        summary=$(grep '^release script tests:' "${out}" | tail -n 1) || true
         if [[ ${summary} =~ ^release\ script\ tests:\ ([0-9]+)\ passed,\ ([0-9]+)\ failed$ ]]; then
             mpassed=${BASH_REMATCH[1]}
             mfailed=${BASH_REMATCH[2]}
