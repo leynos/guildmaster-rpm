@@ -555,10 +555,13 @@ needs PyYAML, so `make unit` runs it with
 `uv run --no-project --with pyyaml==6.0.2`; `uv` must be on `PATH`, and
 the CI jobs install it with `astral-sh/setup-uv`.
 
-The guest accounting test takes its clock as a parameter: every bounded wait
-goes through one `wait_until` helper with an injectable `Clock`.
-`scripts/tests/test_accounting_waits.py` checks that helper offline against a
-fake clock that advances only when slept on, so no real time passes.
+The guest accounting test takes its clock as a parameter for its polling
+waits: each goes through one `wait_until` helper with an injectable `Clock`,
+and a timeout fails the scenario. `scripts/tests/test_accounting_waits.py`
+checks that helper offline against a fake clock that advances only when slept
+on, so no real time passes. Waits that block in the kernel instead of polling,
+`select` on a client's output and `Popen.wait` when stopping a client, keep
+their own real timeouts and are not covered by the fake clock.
 
 None of these offline suites says anything about whether a real
 host can boot the fixtures — `podman-preflight.sh`,

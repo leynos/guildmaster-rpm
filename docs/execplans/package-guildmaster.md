@@ -148,6 +148,16 @@ fresh-guest CUSE acceptance plan.
   and CodeRabbit's pre-merge table there has no errors; its remaining
   warnings are this documentation update, the adoption guide added in
   `docs/migrations/0.1.md`, and Observability, declined by the maintainer.
+- [x] (2026-09-24 12:45Z) CodeRabbit's pre-merge Unit Architecture error on
+  `6564a28` (direct clock use in the guest accounting test) addressed in
+  `4bb2d35`: the polling waits go through one `wait_until` helper with an
+  injectable `Clock`, checked offline by `scripts/tests/test_accounting_waits.py`
+  (run by `make unit`) against a fake clock. `make release-check` passed on a
+  clean tree at `4bb2d35` (fifteen guest tests per target). CodeRabbit's review
+  of `4bb2d35` then found that the helper's result was ignored at two call
+  sites, so a timeout did not fail the scenario, and that the fake clock could
+  not catch a zero-length pause; both fixed, with the guide's claim narrowed to
+  the polling waits. Blocking `select` and `Popen.wait` timeouts remain real.
 - [ ] EP-M7 CI, PR and review (completed: workflows, offline suites for
   every script and for the workflows themselves, PR #1, hosted CI green on
   every pushed head since run 35648908683 with the rootless systemd
@@ -636,3 +646,9 @@ client and QEMU driver packages it pulls in, `qemu-img`, `rpmlint`,
 ## Revision note
 
 2026-09-21: initial draft from research and host prototypes.
+
+2026-09-24: recorded the review rounds up to `4bb2d35`, the injectable clock
+for the guest accounting test and its offline suite, the licence and
+merge-hold decisions, and the plan's blocked status pending the maintainer's
+merge decision. Remaining work is unchanged: merge, hosted acceptance on
+`main`, release and post-publication verification.

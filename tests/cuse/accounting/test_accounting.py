@@ -569,7 +569,10 @@ def scenario_inherited_handles(clients: list[Client]) -> None:
         )
     finally:
         os.kill(child_pid, signal.SIGKILL)
-    wait_until(lambda: not Path(f"/proc/{child_pid}").exists(), clock=probe.clock)
+    if not wait_until(
+        lambda: not Path(f"/proc/{child_pid}").exists(), clock=probe.clock
+    ):
+        raise CheckFailed("the child did not exit before the timeout")
 
     # Release is asynchronous with respect to the child's exit; await it
     # through the pool itself, with a bound.
@@ -579,7 +582,8 @@ def scenario_inherited_handles(clients: list[Client]) -> None:
             probe.expect(f"give {hp}", "gave")
         return taken == CAPACITY
 
-    wait_until(pool_restored, clock=probe.clock)
+    if not wait_until(pool_restored, clock=probe.clock):
+        raise CheckFailed("the pool was not restored before the timeout")
     expect_pool(
         probe, hp, CAPACITY, "closing the last inherited copy returns the token"
     )

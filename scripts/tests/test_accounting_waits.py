@@ -38,15 +38,27 @@ def load_module() -> ModuleType:
 
 
 RUNAWAY_SECONDS = 1000.0
+RUNAWAY_READS = 100_000
 
 
 class FakeClock:
-    """A clock that advances only when slept on, and records the sleeps."""
+    """A clock that advances only when slept on, and records the sleeps.
+
+    Attributes
+    ----------
+    time : float
+        The current fake time in seconds.
+    sleeps : list[float]
+        Every pause requested, in order.
+    reads : int
+        How many times the time has been read.
+    """
 
     def __init__(self) -> None:
         """Start at time zero with no sleeps recorded."""
         self.time = 0.0
         self.sleeps: list[float] = []
+        self.reads = 0
 
     def now(self) -> float:
         """Return the current fake time.
@@ -56,6 +68,14 @@ class FakeClock:
         float
             Seconds since the fake clock started.
         """
+        # Counted separately from fake time, so that a wait that stops
+        # advancing the clock, for example by pausing for zero seconds, is
+        # still caught rather than spinning forever.
+        self.reads += 1
+        if self.reads > RUNAWAY_READS:
+            raise RuntimeError(
+                f"the wait read the clock more than {RUNAWAY_READS} times"
+            )
         return self.time
 
     def sleep(self, seconds: float) -> None:
