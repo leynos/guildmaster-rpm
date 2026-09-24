@@ -237,6 +237,9 @@ new_guest_scenario() {
             "$(sha256sum <"${SCENARIO}/rpms/${file}" | cut -d' ' -f1)" >>"${SCENARIO}/rpms/manifest.tsv"
     done
     echo 'not part of the build' >"${SCENARIO}/rpms/stray-file.rpm"
+    # The upgrade fixture every run needs; scenarios may point elsewhere.
+    mkdir -p "${SCENARIO}/default-upgrade"
+    echo 'upgrade fixture' >"${SCENARIO}/default-upgrade/guildmaster-0.1^1-1.el10.upgradetest.x86_64.rpm"
 }
 
 # run_guest [extra env assignments...]: run cuse-guest.sh against the
@@ -245,7 +248,8 @@ run_guest() {
     status=0
     env TMT="${stub_dir}/tmt" VIRSH="${stub_dir}/virsh" QEMU_IMG="${stub_dir}/qemu-img" \
         PREFLIGHT=true IMAGE_SCRIPT="${SCENARIO}/image-script" IMAGES_TSV="${SCENARIO}/images.tsv" \
-        CACHE_DIR="${SCENARIO}/cache" WORK_ROOT="${SCENARIO}/work" "$@" \
+        CACHE_DIR="${SCENARIO}/cache" WORK_ROOT="${SCENARIO}/work" \
+        UPGRADE_RPM_DIR="${SCENARIO}/default-upgrade" "$@" \
         "${guest_script}" rocky-10 "${SCENARIO}/rpms" >"${SCENARIO}/out" 2>&1 || status=$?
 }
 
@@ -370,6 +374,7 @@ run_guest UPGRADE_RPM_DIR="${SCENARIO}/upgrade"
 assert_status "${status}" 1
 assert_contains "${SCENARIO}/out" 'holds no RPMs' 'an empty upgrade directory is refused'
 assert_lacks "${SCENARIO}/tmt.log" ' execute ' 'and no test is run'
+assert_lacks "${SCENARIO}/tmt.log" 'provision' 'and no guest is provisioned'
 
 new_guest_scenario guest_preflight_runs_once
 cat >"${SCENARIO}/preflight" <<'STUB'
@@ -389,6 +394,12 @@ assert_status "${status}" 0
 assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
     'host_virtual_provisioner: testcloud=0.0-stub' \
     'host facts in the evidence come from the initial preflight'
+
+new_guest_scenario guest_upgrade_dir_unset
+run_guest UPGRADE_RPM_DIR=
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'UPGRADE_RPM_DIR is not set' 'a missing upgrade fixture is refused'
+assert_lacks "${SCENARIO}/tmt.log" 'provision' 'before any guest is provisioned'
 
 new_guest_scenario guest_cleanup_fallback
 touch "${SCENARIO}/cleanup_fails"

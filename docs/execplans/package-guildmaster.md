@@ -489,10 +489,16 @@ documented; tmt/testcloud create a fresh copy-on-write overlay per run
   `x86_64` with the expected dist tag, and nothing else.
   Method: parameterized unit tests over missing/extra/duplicate/`noarch`
   cases.
-- Obligation INV-OVERLAY: an acceptance run never mutates the verified base
-  image.
-  Method: record the base image SHA-256 before and after each run and
-  compare.
+- Obligation INV-OVERLAY: an acceptance run boots a fresh copy-on-write
+  overlay of the verified base image and never mutates that image.
+  Method: `scripts/cuse-guest.sh` checks the base image's SHA-256 before
+  provisioning and after the run; after provisioning it reads the guest
+  disk's backing file with `qemu-img info` and requires it either to
+  resolve to the verified image or to be a copy whose SHA-256 is the
+  pinned one (testcloud may link or copy the image into its store), and
+  refuses a disk with no backing file.
+  Artefact: `scripts/tests/test-cuse-scripts.sh` (a disk backed by another
+  image, a verified copy, and an image changed during the run).
 - Obligation INV-PERM: unauthorized users cannot open `/dev/guild`; the
   client group cannot open `/dev/cuse`.
   Method: guest tests attempting the prohibited `open` from each identity

@@ -60,6 +60,8 @@ repo_root=$(cd "$(dirname "$0")/.." && pwd)
 : "${EVIDENCE_DIR:=${CACHE_DIR}/evidence}"
 : "${WORK_ROOT:=${TMT_WORKDIR_ROOT:-/var/tmp/tmt}}"
 : "${PLAN:=/plans/cuse}"
+# Required: the directory holding the upgrade fixture from
+# scripts/build-upgrade-fixture.sh, which the plan's upgrade test installs.
 : "${UPGRADE_RPM_DIR:=}"
 # Starting allocations, not measured minimums.
 : "${GUEST_MEMORY_MIB:=2048}"
@@ -333,6 +335,15 @@ printf '%s\n' "${preflight_report}"
 mkdir -p "${LOCK_DIR}"
 exec {activity_fd}>"${LOCK_DIR}/activity.lock"
 "${FLOCK}" -s "${activity_fd}"
+
+# The plan's upgrade test needs the upgrade fixture; without it the run would
+# provision a guest only to fail late. Check it before anything is started.
+[[ -n ${UPGRADE_RPM_DIR} ]] ||
+    die "UPGRADE_RPM_DIR is not set; the upgrade tests need it (make upgrade-fixture-${target})"
+upgrade_source=${UPGRADE_RPM_DIR}
+[[ ${upgrade_source} == /* ]] || upgrade_source=${repo_root}/${upgrade_source}
+compgen -G "${upgrade_source}/*.rpm" >/dev/null ||
+    die "UPGRADE_RPM_DIR ${upgrade_source} holds no RPMs; run make upgrade-fixture-${target}"
 
 if [[ -n ${GUEST_IMAGE} ]]; then
     [[ ${GUEST_IMAGE} == /* ]] || die 'GUEST_IMAGE must be an absolute path'

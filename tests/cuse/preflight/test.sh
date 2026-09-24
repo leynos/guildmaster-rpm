@@ -34,7 +34,10 @@ semodule -l 2>/dev/null | grep -qi guild &&
 if ! modinfo cuse >/dev/null 2>&1; then
     provider=
     for candidate in kernel-modules-core kernel-modules kernel-modules-extra; do
-        if dnf -q repoquery -l "${candidate}-${kernel}" 2>/dev/null | grep -q '/fs/fuse/cuse\.ko'; then
+        # Captured first: grep -q exiting at the first match would break the
+        # pipe and, under pipefail, turn a match into a miss.
+        listing=$(dnf -q repoquery -l "${candidate}-${kernel}" 2>/dev/null) || listing=
+        if grep -q '/fs/fuse/cuse\.ko' <<<"${listing}"; then
             provider=${candidate}
             break
         fi

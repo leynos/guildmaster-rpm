@@ -17,9 +17,16 @@ adjust:
   - when: distro == rocky-10
     because: >
         rpmlint is not in Rocky Linux 10's BaseOS, AppStream or CRB; EPEL 10
-        provides it. EPEL is enabled in the fixture for that test-harness
-        dependency only; the package under test needs nothing from it.
+        provides it. EPEL is enabled only long enough to install rpmlint and
+        is then removed again, so that no test, and in particular no
+        installation or upgrade of the package under test, can draw a
+        dependency from it.
     prepare+:
       - how: shell
-        name: enable-epel-for-rpmlint
-        script: dnf -y install epel-release
+        name: install-rpmlint-from-epel
+        script: |
+            set -e
+            dnf -y install epel-release
+            dnf -y install rpmlint
+            dnf -y remove epel-release
+            ! dnf repolist --enabled | grep -qi epel

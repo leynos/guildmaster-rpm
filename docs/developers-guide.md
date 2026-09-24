@@ -492,7 +492,8 @@ _Table 2: test tiers, what they run, and what they cover._
 
 | Tier | Entry point | Covers |
 | --- | --- | --- |
-| Offline script tests | `make unit` (`test-build-rpm.sh`, `test-systemd-fixture.sh`, `test-cuse-scripts.sh`, `test-release-scripts.sh`) | The build, clean, fixture, guest wrapper and release scripts' own orchestration, validation and locking, against stub commands — no network, no container runtime, no `tmt`. |
+| Offline script tests | `make unit` (`test-build-rpm.sh`, `test-systemd-fixture.sh`, `test-cuse-scripts.sh`, `test-release-scripts.sh`, `test-verify-release.sh`, `test-virt-preflight.sh`, `test-upgrade-fixture.sh`, `test-upgrade-fixture-cancel.sh`) | Every repository script's own orchestration, validation and locking, against stub commands — no network, no container runtime, no `tmt`. |
+| Workflow contract | `make unit` (`test_workflows.py`, through `uv` with PyYAML 6.0.2) | The CI, acceptance and release workflows and the composite actions, parsed and checked against the release contract, with mutations. |
 | Bounded model check | `make unit` (`model_check.py`) | A breadth sweep, executed and abstract, over the same build/publish/clean state space; see below. |
 | Rootless systemd container tier | `make test` | Distribution userspace: packaging, the installed unit, accounts, upgrade and removal, and the documented CUSE-missing failure. Runs against the _host_ kernel. |
 | Fresh-guest CUSE tier | `make test-cuse` | Real operation: activation, permissions, token accounting, `gm-run`, hardening, lifecycle, upgrade-while-running, reboot and removal, all with a real kernel, CUSE, udev and enforcing SELinux. |
@@ -525,7 +526,35 @@ and cleanup ownership are tested without a real container runtime,
 does the same for `scripts/assemble-release.sh` and
 `scripts/release-evidence.sh`: complete and incomplete package sets,
 tag and spec agreement, checksums, duplicate asset names and the
-evidence cross-check. These say nothing about whether a real
+evidence cross-check.
+
+Three further suites complete the set. `test-verify-release.sh` stubs
+`gh`, `rpm` and `sha256sum` to exercise `scripts/verify-release.sh` on
+complete, tampered and incomplete releases, including four files that
+are not the four packages. `test-virt-preflight.sh` stubs `tmt`, `virsh`,
+the Python interpreter and `df` to make each virtualization prerequisite
+fail in turn. `test-upgrade-fixture.sh` and
+`test-upgrade-fixture-cancel.sh` stub `podman` and wrap `flock` to cover
+`scripts/build-upgrade-fixture.sh`: argument checks, source reuse and
+rebuilds, failed builds, per-target lock contention and cancellation
+during publication. Each of these suites also builds deliberately
+broken copies of its script and requires the suite to fail against each,
+counting a copy as caught only when the suite reports failed
+assertions, never on a crash.
+
+`scripts/tests/test_workflows.py` (with its `scripts/tests/workflowcheck/`
+package) parses the workflows and composite actions and checks the
+release contract: triggers (no pull request can reach the KVM or
+release workflows), target matrices, the release job graph, least
+privilege, concurrency, pinned actions, checkout settings, artefact
+names and hidden-file uploads, the candidate-to-publish order, tag
+handling, and that every job running a `make` target that needs `uv`
+installs it. Mutations of the workflow text must each be caught. It
+needs PyYAML, so `make unit` runs it with
+`uv run --no-project --with pyyaml==6.0.2`; `uv` must be on `PATH`, and
+the CI jobs install it with `astral-sh/setup-uv`.
+
+None of these offline suites says anything about whether a real
 host can boot the fixtures — `podman-preflight.sh`,
 `virt-preflight.sh` and the real `make test` / `make test-cuse` runs
 cover that.
