@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision log`, `Outcomes & retrospective`, `Conformance basis`, and
 `Verification plan` must be kept up to date as work proceeds.
 
-Status: BLOCKED (awaiting the user's merge decision)
+Status: IN PROGRESS (negotiating the remaining review threads before merge)
 
 ## Purpose / big picture
 
@@ -158,6 +158,18 @@ fresh-guest CUSE acceptance plan.
   sites, so a timeout did not fail the scenario, and that the fake clock could
   not catch a zero-length pause; both fixed, with the guide's claim narrowed to
   the polling waits. Blocking `select` and `Popen.wait` timeouts remain real.
+- [x] (2026-09-24 22:40Z) The maintainer directed that every remaining
+  review thread be negotiated to CodeRabbit's confirmation, then
+  `@coderabbitai approve`, then a squash merge. A complete thread inventory
+  found 11 findings from 02:44Z and 02:49Z still unanswered and valid, all
+  fixed in `941cbbf` to `2b9e474`. They were the fallback move-aside
+  cancellation window in both publishers, the fixture container's start-up
+  ownership window, the guest evidence's `source_tree_dirty` pipeline, the
+  concurrent-publication test's missing lock-request handshake (now with a
+  line-removal mutant), the per-device permission check, and four
+  documentation items. Each was gated as `AGENTS.md` requires. Replies with
+  `@coderabbitai` were posted to all 22 open threads. All 51 resolved
+  threads had been resolved by CodeRabbit itself.
 - [ ] EP-M7 CI, PR and review (completed: workflows, offline suites for
   every script and for the workflows themselves, PR #1, hosted CI green on
   every pushed head since run 35648908683 with the rootless systemd
@@ -169,6 +181,15 @@ fresh-guest CUSE acceptance plan.
 - [ ] EP-M8 release and post-publication verification.
 
 ## Surprises & discoveries
+
+- Observation: at `3c7eda4`'s first `make test`, Fedora's
+  `/tests/container/upgrade` hit tmt's 10-minute limit. dnf had printed
+  `[3/4] Upgrading guildmaster` and nothing more, and the fixture's journal
+  ended with systemd's `Queuing reload/restart jobs for marked units` with
+  no job pending. The rerun passed 8/8 on both targets, and the test had
+  passed on every earlier run. The cause is not known; the retained run
+  directory was `/var/tmp/tmt/gm-fx-fedora-43-3413795-31131`. If it recurs,
+  capture the process tree inside the fixture before the timeout.
 
 - Observation: the host is Fedora 43 under WSL2 with SELinux absent
   (`getenforce` missing, Podman reports `selinuxEnabled: false`).
