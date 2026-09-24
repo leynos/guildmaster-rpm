@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision log`, `Outcomes & retrospective`, `Conformance basis`, and
 `Verification plan` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: BLOCKED (awaiting the user's merge decision)
 
 ## Purpose / big picture
 
@@ -296,6 +296,14 @@ fresh-guest CUSE acceptance plan.
 
 ## Decision log
 
+- Decision: the packaging stays under the ISC licence, matching upstream,
+  with the repository owner as copyright holder (confirmed by the user on
+  2026-09-24).
+  Date/Author: 2026-09-24, user.
+- Decision: stop at a merge-ready PR #1. Nothing is merged or tagged until
+  the user says so; EP-M7's merge and hosted acceptance run and all of
+  EP-M8 wait for that instruction.
+  Date/Author: 2026-09-24, user.
 - Decision: CodeRabbit's pre-merge Observability warning, asking for a
   metrics interface in the daemon, is declined for this package. It would
   need a second downstream patch reading upstream's token-accounting state,
