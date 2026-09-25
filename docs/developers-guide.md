@@ -1285,16 +1285,6 @@ preflight again before provisioning. Before this export existed, that second
 run checked the system `python3` and failed on the first hosted acceptance
 run.
 
-The same action pins testcloud to 0.11.8, the version the local guest tier
-was verified with, because tmt accepts any later release. It also writes
-`~/.config/testcloud/settings.py` to give testcloud's guests a VGA device.
-testcloud's libvirt domain otherwise has no display adapter. On the hosted
-runner's SeaBIOS, the Rocky Linux 10 image's bootloader then hangs before
-the kernel starts, although Fedora 43 boots. A replay of the domain's exact
-QEMU command booted Rocky once a VGA device was added, and hung without one.
-The device is hardware the guest can see, not a change to its software, and
-the settings file is written only on the ephemeral runner.
-
 Verified guest images are cached with `actions/cache`, keyed on
 `fixtures/cuse/images.tsv`. `scripts/cuse-image.sh` still checks the bytes on
 every use, so a bad cache entry is replaced rather than booted. Overlays are

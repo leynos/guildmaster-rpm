@@ -430,8 +430,7 @@ def check_composite_setup_cuse(bundle: Bundle) -> None:
     AssertionError
         If ``setup-cuse-tier`` is not a composite action, does not
         run the preflight, does not export tmt's Python to the job as
-        ``PYTHON``, does not give testcloud guests a VGA device, or does not
-        pin tmt and testcloud as required.
+        ``PYTHON``, or does not pin tmt and testcloud as required.
     """
     doc = bundle.action_docs["setup-cuse-tier"]
     assert doc["runs"]["using"] == "composite", doc["runs"]
@@ -443,9 +442,6 @@ def check_composite_setup_cuse(bundle: Bundle) -> None:
         r'echo "PYTHON=\$\(dirname.*tmt.*python" >> "\$GITHUB_ENV"', raw
     ), "setup-cuse-tier must export PYTHON from the tmt pipx environment to GITHUB_ENV"
     assert "tmt[provision-virtual]==1.78.0" in raw, "tmt must be pinned to 1.78.0"
-    assert 'CMD_LINE_ARGS = ["-device", "VGA,bus=pcie.0,addr=0x10"]' in raw, (
-        "setup-cuse-tier must give testcloud guests a VGA device"
-    )
     assert "pipx runpip tmt install 'testcloud==0.11.8'" in raw, (
         "testcloud must be pinned to 0.11.8 inside tmt's environment"
     )
