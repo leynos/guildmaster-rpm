@@ -91,6 +91,16 @@ plan_dir=${TMT_WORKDIR_ROOT}/${run_id}/plans/cuse
 case " $* " in
 *' provision '*)
     [[ -f ${SCENARIO}/provision_fails ]] && exit 2
+    if [[ -f ${SCENARIO}/boot_fails ]]; then
+        # What tmt does when a created guest never boots: it names the
+        # domain in its log, leaves guests.yaml empty, and the domain keeps
+        # running.
+        mkdir -p "${plan_dir}/provision" "${TMT_WORKDIR_ROOT}/testcloud/instances/tmt-001-stub"
+        printf '00:31:08         name: tmt-001-stub\n' >>"${TMT_WORKDIR_ROOT}/${run_id}/log.txt"
+        printf '{}\n' >"${plan_dir}/provision/guests.yaml"
+        touch "${SCENARIO}/domain_running"
+        exit 2
+    fi
     mkdir -p "${plan_dir}/provision" "${TMT_WORKDIR_ROOT}/testcloud/instances/tmt-001-stub"
     printf 'default-0:\n  instance-name: tmt-001-stub\n' >"${plan_dir}/provision/guests.yaml"
     : >"${TMT_WORKDIR_ROOT}/testcloud/instances/tmt-001-stub/disk.qcow2"
@@ -123,7 +133,13 @@ case " $* " in
 *' dominfo '*) exit 1 ;;
 *' list '*)
     [[ -f ${SCENARIO}/virsh_list_fails ]] && exit 1
-    [[ -f ${SCENARIO}/virsh_still_listed ]] && echo tmt-001-stub
+    if [[ -f ${SCENARIO}/virsh_still_listed || -f ${SCENARIO}/domain_running ]]; then
+        echo tmt-001-stub
+    fi
+    exit 0
+    ;;
+*' destroy '*)
+    rm -f "${SCENARIO}/domain_running"
     exit 0
     ;;
 esac
@@ -436,6 +452,24 @@ assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
     'host_virtual_provisioner: testcloud=0.0-stub' \
     'host facts in the evidence come from the initial preflight'
 
+# A failing preflight names the failed check only in its report, which must
+# therefore reach the output before the run stops.
+new_guest_scenario guest_preflight_failure_is_shown
+cat >"${SCENARIO}/preflight" <<'STUB'
+#!/usr/bin/env bash
+echo 'preflight_event check=virtual_provisioner status=fail detail="stub"'
+echo 'preflight_event check=summary status=fail failures=1'
+exit 1
+STUB
+chmod +x "${SCENARIO}/preflight"
+run_guest PREFLIGHT="${SCENARIO}/preflight"
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'check=virtual_provisioner status=fail' \
+    'the failed check is shown when the preflight fails'
+assert_contains "${SCENARIO}/out" 'the environment preflight failed' \
+    'the run reports that the preflight failed'
+assert_lacks "${SCENARIO}/tmt.log" 'provision' 'no guest is provisioned after a failed preflight'
+
 new_guest_scenario guest_upgrade_dir_unset
 run_guest UPGRADE_RPM_DIR=
 assert_status "${status}" 1
@@ -451,6 +485,17 @@ if [[ $(grep -c 'destroy' "${SCENARIO}/virsh.log") -eq 1 ]]; then ok 'and no oth
 if [[ ! -e ${SCENARIO}/work/testcloud/instances/tmt-001-stub ]]; then ok 'and removes its instance directory'; else not_ok 'instance directory left'; fi
 assert_contains "${SCENARIO}/out" 'event=guest_destroyed target=rocky-10' 'the fallback is logged'
 
+# tmt forgets a guest that failed to boot, so its cleanup succeeds while
+# the domain keeps running. The run must find and destroy that domain.
+new_guest_scenario guest_boot_failure_leaves_no_domain
+touch "${SCENARIO}/boot_fails"
+run_guest
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/virsh.log" 'destroy tmt-001-stub' \
+    'the domain of a guest that failed to boot is destroyed'
+if [[ ! -e ${SCENARIO}/domain_running ]]; then ok 'and no domain is left running'; else not_ok 'the domain was left running'; fi
+assert_contains "${SCENARIO}/out" 'method=fallback' 'the removal is logged as the fallback'
+
 new_guest_scenario guest_cleanup_fallback_session_unreachable
 touch "${SCENARIO}/cleanup_fails" "${SCENARIO}/virsh_list_fails"
 run_guest
@@ -465,6 +510,35 @@ run_guest
 assert_status "${status}" 1
 assert_contains "${SCENARIO}/out" 'event=guest_cleanup_failed' \
     'a domain still listed after removal is reported'
+
+# --- the hosted runner's QEMU wrapper ---------------------------------------
+#
+# .github/actions/setup-cuse-tier/qemu-with-vga.sh adds a VGA device when
+# QEMU starts a tmt guest on a q35 machine, and must pass every other
+# invocation, above all libvirt's capability probes, through unchanged.
+
+wrapper=${repo_root}/.github/actions/setup-cuse-tier/qemu-with-vga.sh
+current=qemu_wrapper
+real=${scratch}/qemu-real
+printf '#!/bin/sh\nprintf "%%s\\n" "$*"\n' >"${real}"
+chmod +x "${real}"
+out=$(QEMU_REAL=${real} "${wrapper}" -name guest=tmt-936-CnKSYkJu,debug-threads=on \
+    -machine pc-q35-noble,usb=off -accel kvm)
+if [[ ${out} == *' -device VGA,bus=pcie.0,addr=0x10' ]]; then
+    ok 'a tmt guest on q35 gains one VGA device'
+else not_ok "a tmt guest on q35 did not gain a VGA device: ${out}"; fi
+if [[ $(grep -o 'VGA' <<<"${out}" | wc -l) -eq 1 ]]; then ok 'exactly one'; else not_ok "VGA devices: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -S -no-user-config -nodefaults -nographic \
+    -machine none,accel=kvm:tcg -qmp unix:/tmp/probe.monitor,server=on,wait=off)
+if [[ ${out} == '-S -no-user-config -nodefaults -nographic -machine none,accel=kvm:tcg -qmp unix:/tmp/probe.monitor,server=on,wait=off' ]]; then
+    ok "libvirt's capability probe passes through unchanged"
+else not_ok "the capability probe was altered: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -name guest=other-vm -machine pc-q35-noble)
+if [[ ${out} != *VGA* ]]; then ok 'a guest not started by tmt is unchanged'; else not_ok "a non-tmt guest was altered: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -name guest=tmt-1-x -machine pc-i440fx-noble)
+if [[ ${out} != *VGA* ]]; then ok 'a tmt guest on another machine type is unchanged'; else not_ok "a non-q35 guest was altered: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -name 'guest=tmt-1-x' -machine pc-q35-noble 'an argument with spaces')
+if [[ ${out} == *'an argument with spaces -device VGA'* ]]; then ok 'arguments are passed through intact'; else not_ok "arguments were altered: ${out}"; fi
 
 echo
 echo "CUSE script tests: ${passed} passed, ${failed} failed"

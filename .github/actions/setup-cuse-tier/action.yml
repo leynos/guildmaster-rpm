@@ -14,6 +14,10 @@ runs:
           libvirt-daemon libvirt-daemon-driver-qemu libvirt-clients libvirt-dev \
           qemu-system-x86 qemu-utils genisoimage pkg-config python3-dev gcc psmisc
         pipx install 'tmt[provision-virtual]==1.78.0'
+        # tmt requires only testcloud>=0.11.7, so pipx would take the newest
+        # release. 0.11.8 is the version the local guest tier was verified
+        # with; the Rocky Linux 10 guest did not boot under 0.12.0 here.
+        pipx runpip tmt install 'testcloud==0.11.8'
 
     # Hosted runners ship /dev/kvm restricted to root and the kvm group.
     # This is GitHub's documented way to let the runner user reach it on an
@@ -26,6 +30,20 @@ runs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
+    # tmt builds testcloud's libvirt domain without a display adapter, and
+    # on this runner's SeaBIOS the Rocky Linux 10 image's bootloader then
+    # hangs before the kernel starts; Fedora 43 boots. A replay of the
+    # domain's exact QEMU command booted Rocky once a VGA device was added,
+    # and hung without one. tmt cannot add a device, so on this ephemeral
+    # runner only, the system QEMU is diverted to a wrapper that adds one VGA
+    # device to tmt guests. Never do this on a shared or developer machine.
+    - name: Give tmt guests a display adapter
+      shell: bash
+      run: |
+        sudo dpkg-divert --local --rename \
+          --divert /usr/bin/qemu-system-x86_64.real --add /usr/bin/qemu-system-x86_64
+        sudo install -m 0755 "${GITHUB_ACTION_PATH}/qemu-with-vga.sh" /usr/bin/qemu-system-x86_64
+
     - name: Start the user manager
       shell: bash
       run: |
@@ -33,9 +51,14 @@ runs:
         echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
 
     # testcloud and the libvirt bindings live in pipx's tmt environment,
-    # which the system python3 cannot import from.
-    - name: Preflight
+    # which the system python3 cannot import from. The interpreter is
+    # exported for the rest of the job, because scripts/cuse-guest.sh runs
+    # the preflight again and would otherwise check the system python3.
+    - name: Use tmt's Python for the preflight
       shell: bash
       run: |
-        PYTHON="$(dirname "$(readlink -f "$(command -v tmt)")")/python" \
-          scripts/virt-preflight.sh
+        echo "PYTHON=$(dirname "$(readlink -f "$(command -v tmt)")")/python" >> "$GITHUB_ENV"
+
+    - name: Preflight
+      shell: bash
+      run: scripts/virt-preflight.sh

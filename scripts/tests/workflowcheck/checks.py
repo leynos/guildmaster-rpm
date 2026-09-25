@@ -429,16 +429,31 @@ def check_composite_setup_cuse(bundle: Bundle) -> None:
     ------
     AssertionError
         If ``setup-cuse-tier`` is not a composite action, does not
-        run the preflight, or does not pin tmt as required.
+        run the preflight, does not export tmt's Python to the job as
+        ``PYTHON``, does not install the QEMU wrapper that gives tmt guests a
+        VGA device, or does not pin tmt and testcloud as required.
     """
     doc = bundle.action_docs["setup-cuse-tier"]
     assert doc["runs"]["using"] == "composite", doc["runs"]
     raw = bundle.action_raws["setup-cuse-tier"]
     assert "scripts/virt-preflight.sh" in raw, raw
-    assert re.search(r'PYTHON="\$\(dirname.*tmt.*python"', raw), (
-        "setup-cuse-tier must set PYTHON from the tmt pipx environment"
-    )
+    # Exported for the whole job: scripts/cuse-guest.sh reruns the preflight,
+    # and without tmt's interpreter it checks the system python3 and fails.
+    assert re.search(
+        r'echo "PYTHON=\$\(dirname.*tmt.*python" >> "\$GITHUB_ENV"', raw
+    ), "setup-cuse-tier must export PYTHON from the tmt pipx environment to GITHUB_ENV"
     assert "tmt[provision-virtual]==1.78.0" in raw, "tmt must be pinned to 1.78.0"
+    assert (
+        "--divert /usr/bin/qemu-system-x86_64.real --add /usr/bin/qemu-system-x86_64"
+        in raw
+    ), "setup-cuse-tier must divert the system QEMU before installing the wrapper"
+    assert (
+        'install -m 0755 "${GITHUB_ACTION_PATH}/qemu-with-vga.sh" '
+        "/usr/bin/qemu-system-x86_64" in raw
+    ), "setup-cuse-tier must install the VGA wrapper in place of the system QEMU"
+    assert "pipx runpip tmt install 'testcloud==0.11.8'" in raw, (
+        "testcloud must be pinned to 0.11.8 inside tmt's environment"
+    )
 
 
 def check_composite_setup_container(bundle: Bundle) -> None:

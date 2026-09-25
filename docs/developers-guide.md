@@ -786,6 +786,12 @@ recorded, and leave the container behind. Ownership is given up only
 when a failed start is shown, by `podman container exists`, to have
 created nothing.
 
+The container is reported removed only once `podman rm` succeeds or the
+container no longer exists. Otherwise `cleanup` logs
+`container_remove_failed`, prints the command to remove it, and fails the
+run, even a run whose tests passed. Before this check existed, a container
+that `podman rm` failed to remove was still logged as removed.
+
 ### Run directories under `/var/tmp/tmt`
 
 `tmt` copies the entire fmf (Flexible Metadata Format) tree into
@@ -1270,6 +1276,34 @@ system libvirt connection or emulation. On the hosted runner only, the
 set-up step opens `/dev/kvm` to the runner user with a udev rule, which is
 GitHub's documented method for an ephemeral machine and must not be copied
 to a shared host.
+
+tmt is installed with `pipx`, so testcloud and the libvirt Python bindings
+live in tmt's own environment, not the system `python3`. The CUSE set-up
+action exports that environment's interpreter as `PYTHON` for the rest of
+the job. The preflight checks `PYTHON`, and `scripts/cuse-guest.sh` runs the
+preflight again before provisioning. Before this export existed, that second
+run checked the system `python3` and failed on the first hosted acceptance
+run.
+
+The same action pins testcloud to 0.11.8, the version the local guest tier
+was verified with, because tmt accepts any later release.
+
+It also replaces the runner's QEMU. tmt builds testcloud's libvirt domain
+without a display adapter. On the hosted runner's SeaBIOS, the Rocky Linux
+10 image's bootloader then hangs before the kernel starts, although Fedora
+43 boots. The image boots under plain QEMU on the same runner. A replay of
+the domain's exact QEMU command hung, and booted to a login prompt once a
+VGA device was added. tmt offers no way to add a device, and testcloud's
+`CMD_LINE_ARGS` setting is not applied to domains that tmt builds. So, on
+the ephemeral runner only, the action uses `dpkg-divert` to move
+`/usr/bin/qemu-system-x86_64` aside and installs
+`.github/actions/setup-cuse-tier/qemu-with-vga.sh` in its place. The wrapper
+adds one VGA device when QEMU starts a tmt guest on a q35 machine, and passes
+every other invocation through unchanged, including libvirt's capability
+probes. It changes the guest's hardware, not its software. It is a runner
+accommodation like the `/dev/kvm` udev rule, and must never be installed on a
+shared or developer machine. `scripts/tests/test-cuse-scripts.sh` tests the
+wrapper offline, and the workflow check requires the action to install it.
 
 Verified guest images are cached with `actions/cache`, keyed on
 `fixtures/cuse/images.tsv`. `scripts/cuse-image.sh` still checks the bytes on
