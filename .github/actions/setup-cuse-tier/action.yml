@@ -14,6 +14,10 @@ runs:
           libvirt-daemon libvirt-daemon-driver-qemu libvirt-clients libvirt-dev \
           qemu-system-x86 qemu-utils genisoimage pkg-config python3-dev gcc psmisc
         pipx install 'tmt[provision-virtual]==1.78.0'
+        # tmt requires only testcloud>=0.11.7, so pipx would take the newest
+        # release. 0.11.8 is the version the local guest tier was verified
+        # with; the Rocky Linux 10 guest did not boot under 0.12.0 here.
+        pipx runpip tmt install 'testcloud==0.11.8'
 
     # Hosted runners ship /dev/kvm restricted to root and the kvm group.
     # This is GitHub's documented way to let the runner user reach it on an
