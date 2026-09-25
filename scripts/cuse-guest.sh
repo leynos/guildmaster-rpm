@@ -127,38 +127,60 @@ tmt_run() {
         run --id "${run_id}" "$@"
 }
 
-# Last resort when tmt cannot clean up its own run: remove the one libvirt
-# domain and testcloud instance directory that tmt recorded for this run id.
+# own_instance: print the name of this run's libvirt domain, if known.
 #
-# destroy_own_guest: destroy this run's guest without tmt's help.
-#
-# Reads the instance name from the run's guests.yaml, destroys and
-# undefines the matching libvirt domain, and removes its testcloud
-# instance directory. Returns 1 without changing anything when no
-# tmt-owned instance name can be found; otherwise returns 0 once the
-# domain is confirmed gone, or non-zero if it is still present.
-destroy_own_guest() {
+# Reads it from the run's guests.yaml. tmt empties that record when the
+# guest fails to boot, although the domain has been created and keeps
+# running, so the name is then read from the provision step's output in the
+# run's own log.txt. Both files belong to this run's unique run directory,
+# so the name can only be this invocation's guest. Prints nothing when no
+# tmt-owned name is recorded. Always returns 0.
+own_instance() {
     local instance
     instance=$(sed -n 's/^ *instance-name: *//p' \
         "${run_dir}/plans${PLAN#/plans}/provision/guests.yaml" 2>/dev/null | head -n 1)
+    if [[ ${instance} != tmt-* ]]; then
+        instance=$(sed -n 's/^[0-9:]* *name: \(tmt-[A-Za-z0-9-]*\)$/\1/p' \
+            "${run_dir}/log.txt" 2>/dev/null | head -n 1)
+    fi
+    [[ ${instance} == tmt-* ]] && printf '%s\n' "${instance}"
+    return 0
+}
+
+# guest_is_gone <instance>: whether libvirt no longer lists the domain.
+#
+# Gone only if the session answers and does not list it: a failed query,
+# such as an unreachable session, is not evidence of absence.
+guest_is_gone() {
+    local domains
+    domains=$("${VIRSH}" --connect qemu:///session list --all --name 2>/dev/null) || return 1
+    ! grep -qxF -- "$1" <<<"${domains}"
+}
+
+# destroy_own_guest <instance>: destroy this run's guest without tmt's help.
+#
+# Destroys and undefines the named libvirt domain and removes its testcloud
+# instance directory. Returns 0 once the domain is confirmed gone, or
+# non-zero if it is still present or its absence cannot be confirmed.
+destroy_own_guest() {
+    local instance=$1
     [[ ${instance} == tmt-* ]] || return 1
     "${VIRSH}" --connect qemu:///session destroy "${instance}" >/dev/null 2>&1 || true
     "${VIRSH}" --connect qemu:///session undefine "${instance}" --nvram >/dev/null 2>&1 ||
         "${VIRSH}" --connect qemu:///session undefine "${instance}" >/dev/null 2>&1 || true
     rm -rf "${WORK_ROOT:?}/testcloud/instances/${instance}"
-    # Gone only if the session answers and does not list it: a failed query,
-    # such as an unreachable session, is not evidence of absence.
-    local domains
-    domains=$("${VIRSH}" --connect qemu:///session list --all --name 2>/dev/null) || return 1
-    ! grep -qxF -- "${instance}" <<<"${domains}"
+    guest_is_gone "${instance}"
 }
 
 # cleanup: destroy this run's guest and reclaim its run directory.
 #
-# Invoked from the EXIT, INT and TERM traps. When a guest was provisioned,
-# asks tmt to clean it up, falling back to destroy_own_guest, and logs the
-# outcome; forces the exit status to 1 if cleanup fails and nothing else
-# already failed. Removes run_dir unless the run failed or KEEP_WORKDIR is
+# Invoked from the EXIT, INT and TERM traps. When provisioning was
+# attempted, asks tmt to clean up, then confirms that this run's domain is
+# gone, since tmt forgets a guest that failed to boot and its cleanup then
+# succeeds while the guest keeps running. A domain still present is
+# destroyed with destroy_own_guest. Logs the outcome, and forces the exit
+# status to 1 if the guest cannot be shown gone and nothing else already
+# failed. Removes run_dir unless the run failed or KEEP_WORKDIR is
 # set. Exits the script with the original (or forced) status.
 cleanup() {
     local status=$?
@@ -167,11 +189,18 @@ cleanup() {
         # tmt pulled the test logs during execute and report; whatever a
         # failing test dumped (journal, AVC records, device labels) is
         # already in the run directory. Now destroy this run's guest.
-        if tmt_run cleanup >"${run_dir}.cleanup.log" 2>&1; then
+        local tmt_cleaned=no instance
+        tmt_run cleanup >"${run_dir}.cleanup.log" 2>&1 && tmt_cleaned=yes
+        instance=$(own_instance)
+        if [[ -z ${instance} && ${tmt_cleaned} == yes ]]; then
+            # No domain was ever recorded for this run.
             log_event guest_destroyed
             rm -f "${run_dir}.cleanup.log"
-        elif destroy_own_guest; then
-            log_event guest_destroyed 'method=fallback' "log=${run_dir}.cleanup.log"
+        elif [[ -n ${instance} && ${tmt_cleaned} == yes ]] && guest_is_gone "${instance}"; then
+            log_event guest_destroyed "instance=${instance}"
+            rm -f "${run_dir}.cleanup.log"
+        elif [[ -n ${instance} ]] && destroy_own_guest "${instance}"; then
+            log_event guest_destroyed 'method=fallback' "instance=${instance}" "log=${run_dir}.cleanup.log"
         else
             log_event guest_cleanup_failed "log=${run_dir}.cleanup.log"
             echo "$0: could not remove the guest of run ${run_id}; see ${run_dir}.cleanup.log" >&2

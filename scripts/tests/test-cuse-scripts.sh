@@ -91,6 +91,16 @@ plan_dir=${TMT_WORKDIR_ROOT}/${run_id}/plans/cuse
 case " $* " in
 *' provision '*)
     [[ -f ${SCENARIO}/provision_fails ]] && exit 2
+    if [[ -f ${SCENARIO}/boot_fails ]]; then
+        # What tmt does when a created guest never boots: it names the
+        # domain in its log, leaves guests.yaml empty, and the domain keeps
+        # running.
+        mkdir -p "${plan_dir}/provision" "${TMT_WORKDIR_ROOT}/testcloud/instances/tmt-001-stub"
+        printf '00:31:08         name: tmt-001-stub\n' >>"${TMT_WORKDIR_ROOT}/${run_id}/log.txt"
+        printf '{}\n' >"${plan_dir}/provision/guests.yaml"
+        touch "${SCENARIO}/domain_running"
+        exit 2
+    fi
     mkdir -p "${plan_dir}/provision" "${TMT_WORKDIR_ROOT}/testcloud/instances/tmt-001-stub"
     printf 'default-0:\n  instance-name: tmt-001-stub\n' >"${plan_dir}/provision/guests.yaml"
     : >"${TMT_WORKDIR_ROOT}/testcloud/instances/tmt-001-stub/disk.qcow2"
@@ -123,7 +133,13 @@ case " $* " in
 *' dominfo '*) exit 1 ;;
 *' list '*)
     [[ -f ${SCENARIO}/virsh_list_fails ]] && exit 1
-    [[ -f ${SCENARIO}/virsh_still_listed ]] && echo tmt-001-stub
+    if [[ -f ${SCENARIO}/virsh_still_listed || -f ${SCENARIO}/domain_running ]]; then
+        echo tmt-001-stub
+    fi
+    exit 0
+    ;;
+*' destroy '*)
+    rm -f "${SCENARIO}/domain_running"
     exit 0
     ;;
 esac
@@ -468,6 +484,17 @@ assert_contains "${SCENARIO}/virsh.log" 'destroy tmt-001-stub' 'the fallback des
 if [[ $(grep -c 'destroy' "${SCENARIO}/virsh.log") -eq 1 ]]; then ok 'and no other domain'; else not_ok 'more than one domain destroyed'; fi
 if [[ ! -e ${SCENARIO}/work/testcloud/instances/tmt-001-stub ]]; then ok 'and removes its instance directory'; else not_ok 'instance directory left'; fi
 assert_contains "${SCENARIO}/out" 'event=guest_destroyed target=rocky-10' 'the fallback is logged'
+
+# tmt forgets a guest that failed to boot, so its cleanup succeeds while
+# the domain keeps running. The run must find and destroy that domain.
+new_guest_scenario guest_boot_failure_leaves_no_domain
+touch "${SCENARIO}/boot_fails"
+run_guest
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/virsh.log" 'destroy tmt-001-stub' \
+    'the domain of a guest that failed to boot is destroyed'
+if [[ ! -e ${SCENARIO}/domain_running ]]; then ok 'and no domain is left running'; else not_ok 'the domain was left running'; fi
+assert_contains "${SCENARIO}/out" 'method=fallback' 'the removal is logged as the fallback'
 
 new_guest_scenario guest_cleanup_fallback_session_unreachable
 touch "${SCENARIO}/cleanup_fails" "${SCENARIO}/virsh_list_fails"
