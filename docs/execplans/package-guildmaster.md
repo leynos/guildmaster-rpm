@@ -192,9 +192,9 @@ fresh-guest CUSE acceptance plan.
   every pushed head since run 35648908683 with the rootless systemd
   preflight passing on `ubuntu-24.04` and Podman 4.9.3, and three rounds
   of CodeRabbit and Codex review, each finding actioned or, for the
-  metrics interface, declined by the maintainer; remaining: merge, and the
-  hosted CUSE tier, which can only run once `acceptance.yml` is on
-  `main`).
+  metrics interface, declined by the maintainer; PR #1 merged; hosted CUSE
+  acceptance passing on both targets on the PR #2 branch, run 36128506702;
+  remaining: merge PR #2 and confirm hosted acceptance on `main`).
 - [ ] EP-M8 release and post-publication verification.
 
 ## Surprises & discoveries
