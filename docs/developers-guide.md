@@ -786,6 +786,12 @@ recorded, and leave the container behind. Ownership is given up only
 when a failed start is shown, by `podman container exists`, to have
 created nothing.
 
+The container is reported removed only once `podman rm` succeeds or the
+container no longer exists. Otherwise `cleanup` logs
+`container_remove_failed`, prints the command to remove it, and fails the
+run, even a run whose tests passed. Before this check existed, a container
+that `podman rm` failed to remove was still logged as removed.
+
 ### Run directories under `/var/tmp/tmt`
 
 `tmt` copies the entire fmf (Flexible Metadata Format) tree into

@@ -132,7 +132,9 @@ capture_diagnostics() {
 # Invoked from the EXIT, INT and TERM traps. Unless container_started is
 # "no", captures diagnostics before removing the container when the run did
 # not succeed, then force-removes the container by this invocation's name;
-# a "pending" start that created nothing makes that removal a no-op. Removes work_dir unless the run failed or KEEP_WORKDIR is
+# a "pending" start that created nothing makes that removal a no-op. If the
+# container still exists afterwards, logs container_remove_failed and exits
+# non-zero, even from a run that had otherwise succeeded. Removes work_dir unless the run failed or KEEP_WORKDIR is
 # set. Exits the script with the original status.
 cleanup() {
     local status=$?
@@ -141,9 +143,17 @@ cleanup() {
         if [[ ${succeeded} != yes ]]; then
             capture_diagnostics
         fi
-        # Only ever this invocation's container.
-        "${PODMAN}" rm --force --time 10 "${name}" >/dev/null 2>&1 || true
-        log_event container_removed
+        # Only ever this invocation's container. It is reported removed only
+        # once it is gone; a container left behind fails the run, even one
+        # that had otherwise succeeded.
+        if "${PODMAN}" rm --force --time 10 "${name}" >/dev/null 2>&1 ||
+            ! "${PODMAN}" container exists "${name}"; then
+            log_event container_removed
+        else
+            log_event container_remove_failed "container=${name}"
+            echo "$0: could not remove the fixture container ${name}; remove it with: podman rm --force ${name}" >&2
+            [[ ${status} -ne 0 ]] || status=1
+        fi
     fi
     if [[ -d ${work_dir} ]]; then
         if [[ ${succeeded} == yes && ${KEEP_WORKDIR} != 1 ]]; then

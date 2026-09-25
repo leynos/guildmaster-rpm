@@ -118,7 +118,8 @@ run)
     exit "$(answer run_status || echo 0)"
     ;;
 container) exit "$(answer container_exists_status || echo 1)" ;;
-rm | logs) exit 0 ;;
+rm) exit "$(answer rm_status || echo 0)" ;;
+logs) exit 0 ;;
 inspect)
     case $* in
     *SystemdMode*) answer settings ;;
@@ -375,6 +376,16 @@ echo 125 >"${SCENARIO}/run_status"
 run_fixture
 assert_status "${status}" 1
 assert_lacks "${SCENARIO}/podman.log" 'rm ' 'nothing is removed when nothing was started'
+
+# A container that podman fails to remove is reported, not claimed removed,
+# and fails a run that had otherwise passed.
+new_scenario container_remove_fails
+echo 125 >"${SCENARIO}/rm_status"
+echo 0 >"${SCENARIO}/container_exists_status"
+run_fixture
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'event=container_remove_failed' 'the failed removal is reported'
+assert_lacks "${SCENARIO}/out" 'event=container_removed' 'the container is not claimed removed'
 
 # A failed start that nonetheless created the container still owns it: the
 # container is removed by this invocation's name.
