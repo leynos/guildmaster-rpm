@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision log`, `Outcomes & retrospective`, `Conformance basis`, and
 `Verification plan` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS (negotiating the remaining review threads before merge)
+Status: IN PROGRESS (PR #2 fixes the hosted CUSE tier; release pending)
 
 ## Purpose / big picture
 
@@ -170,6 +170,23 @@ fresh-guest CUSE acceptance plan.
   documentation items. Each was gated as `AGENTS.md` requires. Replies with
   `@coderabbitai` were posted to all 22 open threads. All 51 resolved
   threads had been resolved by CodeRabbit itself.
+- [x] (2026-09-24 22:50Z) CodeRabbit confirmed every thread and approved
+  `4599e64`; PR #1 was squash-merged as `2bd263c`, with a tree identical to
+  `4599e64`. CI passed on `main` (run 36069662924).
+- [x] (2026-09-25 04:40Z) The first hosted CUSE acceptance run on `main`
+  (run 36069662978) failed on both targets before provisioning. PR #2
+  (`fix-hosted-cuse-preflight`) fixes this and the defects it exposed:
+  tmt's pipx Python exported to the job (`15a7332`); the preflight report
+  shown before a failure is acted on (`486dfdc`); the fixture container
+  reported removed only once gone (`a617f75`); the guest confirmed gone
+  after tmt's cleanup, which forgets a guest that failed to boot
+  (`60c3a10`); testcloud pinned to 0.11.8 (`eb72c0b`); and, on the hosted
+  runner only, a QEMU wrapper that gives tmt guests a VGA device
+  (`0caacfb`). A first attempt through testcloud's settings file had no
+  effect under tmt and was reverted (`e12e78a`). Hosted acceptance run
+  36128506702 at `0caacfb` passed 15/15 on Rocky Linux 10.2 (kernel
+  6.12.0-211.16.1.el10_2.0.1) and Fedora 43 (kernel 6.17.1-300.fc43), both
+  SELinux enforcing, with a clean source tree.
 - [ ] EP-M7 CI, PR and review (completed: workflows, offline suites for
   every script and for the workflows themselves, PR #1, hosted CI green on
   every pushed head since run 35648908683 with the rootless systemd
@@ -181,6 +198,20 @@ fresh-guest CUSE acceptance plan.
 - [ ] EP-M8 release and post-publication verification.
 
 ## Surprises & discoveries
+
+- Observation: on GitHub-hosted runners the Rocky Linux 10 guest never got
+  past its bootloader under tmt and testcloud, at 120 and at 600 seconds,
+  while Fedora 43 booted. CPU samples through the QEMU monitor were all in
+  real mode or in SeaBIOS; the serial console stayed empty. The runner CPU
+  (AMD EPYC 9V74) supports x86-64-v3, and the image booted in seconds under
+  plain QEMU on the same runner, including on q35 with a seed and a 40 GiB
+  overlay. Replaying libvirt's exact QEMU command reproduced the hang.
+  Adding only a VGA device made it boot; removing the extra NICs, strict
+  boot order or `hpet=off`, or using one socket, did not. tmt builds the
+  domain itself without a display adapter and offers no way to add one,
+  and testcloud's `CMD_LINE_ARGS` is not applied to tmt's domains. The same
+  runs showed that tmt forgets a guest that fails to boot, so its cleanup
+  succeeded while the guest kept running.
 
 - Observation: at `3c7eda4`'s first `make test`, Fedora's
   `/tests/container/upgrade` hit tmt's 10-minute limit. dnf had printed
@@ -326,6 +357,13 @@ fresh-guest CUSE acceptance plan.
   the group resolves.
 
 ## Decision log
+
+- Decision: on the ephemeral hosted runner only, divert
+  `/usr/bin/qemu-system-x86_64` to a wrapper that adds one VGA device to
+  tmt guests on q35, rather than release on local Rocky evidence, switch to
+  UEFI boot, or wait for an upstream fix. The guest's software is unchanged;
+  the wrapper is tested offline and required by the workflow check.
+  Date/Author: 2026-09-25, user (chosen from options put by Claude).
 
 - Decision: the packaging stays under the ISC licence, matching upstream,
   with the repository owner as copyright holder (confirmed by the user on
