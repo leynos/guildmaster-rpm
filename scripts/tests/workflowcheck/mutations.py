@@ -100,6 +100,16 @@ def _keep_tmt_python_out_of_job_env(raw: str) -> str:
     return raw.replace('/python" >> "$GITHUB_ENV"', '/python"', 1)
 
 
+def _skip_qemu_wrapper(raw: str) -> str:
+    """Stop setup-cuse-tier installing the QEMU wrapper."""
+    return raw.replace(
+        'sudo install -m 0755 "${GITHUB_ACTION_PATH}/qemu-with-vga.sh" '
+        "/usr/bin/qemu-system-x86_64\n",
+        "",
+        1,
+    )
+
+
 def _drop_include_hidden_from_release(raw: str) -> str:
     """Remove include-hidden-files from one release.yml evidence upload."""
     return raw.replace("          include-hidden-files: true\n", "", 1)
@@ -164,6 +174,12 @@ MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]]
         "setup-cuse-tier stops exporting tmt's Python",
         "setup-cuse-tier",
         _keep_tmt_python_out_of_job_env,
+        check_composite_setup_cuse,
+    ),
+    (
+        "setup-cuse-tier stops installing the QEMU wrapper",
+        "setup-cuse-tier",
+        _skip_qemu_wrapper,
         check_composite_setup_cuse,
     ),
     (

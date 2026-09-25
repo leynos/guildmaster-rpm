@@ -511,6 +511,35 @@ assert_status "${status}" 1
 assert_contains "${SCENARIO}/out" 'event=guest_cleanup_failed' \
     'a domain still listed after removal is reported'
 
+# --- the hosted runner's QEMU wrapper ---------------------------------------
+#
+# .github/actions/setup-cuse-tier/qemu-with-vga.sh adds a VGA device when
+# QEMU starts a tmt guest on a q35 machine, and must pass every other
+# invocation, above all libvirt's capability probes, through unchanged.
+
+wrapper=${repo_root}/.github/actions/setup-cuse-tier/qemu-with-vga.sh
+current=qemu_wrapper
+real=${scratch}/qemu-real
+printf '#!/bin/sh\nprintf "%%s\\n" "$*"\n' >"${real}"
+chmod +x "${real}"
+out=$(QEMU_REAL=${real} "${wrapper}" -name guest=tmt-936-CnKSYkJu,debug-threads=on \
+    -machine pc-q35-noble,usb=off -accel kvm)
+if [[ ${out} == *' -device VGA,bus=pcie.0,addr=0x10' ]]; then
+    ok 'a tmt guest on q35 gains one VGA device'
+else not_ok "a tmt guest on q35 did not gain a VGA device: ${out}"; fi
+if [[ $(grep -o 'VGA' <<<"${out}" | wc -l) -eq 1 ]]; then ok 'exactly one'; else not_ok "VGA devices: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -S -no-user-config -nodefaults -nographic \
+    -machine none,accel=kvm:tcg -qmp unix:/tmp/probe.monitor,server=on,wait=off)
+if [[ ${out} == '-S -no-user-config -nodefaults -nographic -machine none,accel=kvm:tcg -qmp unix:/tmp/probe.monitor,server=on,wait=off' ]]; then
+    ok "libvirt's capability probe passes through unchanged"
+else not_ok "the capability probe was altered: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -name guest=other-vm -machine pc-q35-noble)
+if [[ ${out} != *VGA* ]]; then ok 'a guest not started by tmt is unchanged'; else not_ok "a non-tmt guest was altered: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -name guest=tmt-1-x -machine pc-i440fx-noble)
+if [[ ${out} != *VGA* ]]; then ok 'a tmt guest on another machine type is unchanged'; else not_ok "a non-q35 guest was altered: ${out}"; fi
+out=$(QEMU_REAL=${real} "${wrapper}" -name 'guest=tmt-1-x' -machine pc-q35-noble 'an argument with spaces')
+if [[ ${out} == *'an argument with spaces -device VGA'* ]]; then ok 'arguments are passed through intact'; else not_ok "arguments were altered: ${out}"; fi
+
 echo
 echo "CUSE script tests: ${passed} passed, ${failed} failed"
 [[ ${failed} -eq 0 ]]

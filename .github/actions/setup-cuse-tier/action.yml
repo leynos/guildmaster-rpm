@@ -30,6 +30,20 @@ runs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
+    # tmt builds testcloud's libvirt domain without a display adapter, and
+    # on this runner's SeaBIOS the Rocky Linux 10 image's bootloader then
+    # hangs before the kernel starts; Fedora 43 boots. A replay of the
+    # domain's exact QEMU command booted Rocky once a VGA device was added,
+    # and hung without one. tmt cannot add a device, so on this ephemeral
+    # runner only, the system QEMU is diverted to a wrapper that adds one VGA
+    # device to tmt guests. Never do this on a shared or developer machine.
+    - name: Give tmt guests a display adapter
+      shell: bash
+      run: |
+        sudo dpkg-divert --local --rename \
+          --divert /usr/bin/qemu-system-x86_64.real --add /usr/bin/qemu-system-x86_64
+        sudo install -m 0755 "${GITHUB_ACTION_PATH}/qemu-with-vga.sh" /usr/bin/qemu-system-x86_64
+
     - name: Start the user manager
       shell: bash
       run: |

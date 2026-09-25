@@ -1285,6 +1285,26 @@ preflight again before provisioning. Before this export existed, that second
 run checked the system `python3` and failed on the first hosted acceptance
 run.
 
+The same action pins testcloud to 0.11.8, the version the local guest tier
+was verified with, because tmt accepts any later release.
+
+It also replaces the runner's QEMU. tmt builds testcloud's libvirt domain
+without a display adapter. On the hosted runner's SeaBIOS, the Rocky Linux
+10 image's bootloader then hangs before the kernel starts, although Fedora
+43 boots. The image boots under plain QEMU on the same runner. A replay of
+the domain's exact QEMU command hung, and booted to a login prompt once a
+VGA device was added. tmt offers no way to add a device, and testcloud's
+`CMD_LINE_ARGS` setting is not applied to domains that tmt builds. So, on
+the ephemeral runner only, the action uses `dpkg-divert` to move
+`/usr/bin/qemu-system-x86_64` aside and installs
+`.github/actions/setup-cuse-tier/qemu-with-vga.sh` in its place. The wrapper
+adds one VGA device when QEMU starts a tmt guest on a q35 machine, and passes
+every other invocation through unchanged, including libvirt's capability
+probes. It changes the guest's hardware, not its software. It is a runner
+accommodation like the `/dev/kvm` udev rule, and must never be installed on a
+shared or developer machine. `scripts/tests/test-cuse-scripts.sh` tests the
+wrapper offline, and the workflow check requires the action to install it.
+
 Verified guest images are cached with `actions/cache`, keyed on
 `fixtures/cuse/images.tsv`. `scripts/cuse-image.sh` still checks the bytes on
 every use, so a bad cache entry is replaced rather than booted. Overlays are
