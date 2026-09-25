@@ -100,6 +100,15 @@ def _keep_tmt_python_out_of_job_env(raw: str) -> str:
     return raw.replace('/python" >> "$GITHUB_ENV"', '/python"', 1)
 
 
+def _drop_testcloud_vga(raw: str) -> str:
+    """Stop setup-cuse-tier giving testcloud guests a VGA device."""
+    return raw.replace(
+        'CMD_LINE_ARGS = ["-device", "VGA,bus=pcie.0,addr=0x10"]',
+        "CMD_LINE_ARGS = []",
+        1,
+    )
+
+
 def _drop_include_hidden_from_release(raw: str) -> str:
     """Remove include-hidden-files from one release.yml evidence upload."""
     return raw.replace("          include-hidden-files: true\n", "", 1)
@@ -164,6 +173,12 @@ MUTATIONS: list[tuple[str, str, Callable[[str], str], Callable[[Bundle], None]]]
         "setup-cuse-tier stops exporting tmt's Python",
         "setup-cuse-tier",
         _keep_tmt_python_out_of_job_env,
+        check_composite_setup_cuse,
+    ),
+    (
+        "setup-cuse-tier stops giving guests a VGA device",
+        "setup-cuse-tier",
+        _drop_testcloud_vga,
         check_composite_setup_cuse,
     ),
     (

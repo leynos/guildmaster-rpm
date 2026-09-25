@@ -30,6 +30,21 @@ runs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
+    # testcloud's libvirt domain has no display adapter. On this runner's
+    # SeaBIOS, the Rocky Linux 10 image's bootloader then hangs before the
+    # kernel starts (Fedora 43's does not). A replay of the exact QEMU
+    # command booted Rocky once a VGA device was added, and hung without
+    # one. testcloud's own user settings file supplies the device; nothing
+    # about the guest's software changes.
+    - name: Give testcloud guests a display adapter
+      shell: bash
+      run: |
+        mkdir -p "${HOME}/.config/testcloud"
+        cat > "${HOME}/.config/testcloud/settings.py" <<'SETTINGS'
+        # Written by .github/actions/setup-cuse-tier. See the comment there.
+        CMD_LINE_ARGS = ["-device", "VGA,bus=pcie.0,addr=0x10"]
+        SETTINGS
+
     - name: Start the user manager
       shell: bash
       run: |
