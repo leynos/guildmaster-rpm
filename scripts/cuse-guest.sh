@@ -348,9 +348,14 @@ write_evidence() {
     log_event evidence_written "path=${evidence}"
 }
 
-# The report is kept for the evidence, and shown as it would have been.
-preflight_report=$("${PREFLIGHT}")
+# The report is kept for the evidence, and shown as it would have been. It is
+# shown before a failure is acted on: the preflight names each failed check
+# only in this report, so exiting first would hide which check failed.
+preflight_status=0
+preflight_report=$("${PREFLIGHT}") || preflight_status=$?
 printf '%s\n' "${preflight_report}"
+[[ ${preflight_status} -eq 0 ]] ||
+    die "the environment preflight failed (status ${preflight_status}); see the failed checks above"
 
 mkdir -p "${LOCK_DIR}"
 exec {activity_fd}>"${LOCK_DIR}/activity.lock"

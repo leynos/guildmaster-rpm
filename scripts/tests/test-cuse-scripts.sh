@@ -436,6 +436,24 @@ assert_contains "${SCENARIO}/cache/evidence/cuse-rocky-10-candidate.txt" \
     'host_virtual_provisioner: testcloud=0.0-stub' \
     'host facts in the evidence come from the initial preflight'
 
+# A failing preflight names the failed check only in its report, which must
+# therefore reach the output before the run stops.
+new_guest_scenario guest_preflight_failure_is_shown
+cat >"${SCENARIO}/preflight" <<'STUB'
+#!/usr/bin/env bash
+echo 'preflight_event check=virtual_provisioner status=fail detail="stub"'
+echo 'preflight_event check=summary status=fail failures=1'
+exit 1
+STUB
+chmod +x "${SCENARIO}/preflight"
+run_guest PREFLIGHT="${SCENARIO}/preflight"
+assert_status "${status}" 1
+assert_contains "${SCENARIO}/out" 'check=virtual_provisioner status=fail' \
+    'the failed check is shown when the preflight fails'
+assert_contains "${SCENARIO}/out" 'the environment preflight failed' \
+    'the run reports that the preflight failed'
+assert_lacks "${SCENARIO}/tmt.log" 'provision' 'no guest is provisioned after a failed preflight'
+
 new_guest_scenario guest_upgrade_dir_unset
 run_guest UPGRADE_RPM_DIR=
 assert_status "${status}" 1
