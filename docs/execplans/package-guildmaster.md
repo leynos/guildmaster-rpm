@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision log`, `Outcomes & retrospective`, `Conformance basis`, and
 `Verification plan` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS (PR #2 fixes the hosted CUSE tier; release pending)
+Status: COMPLETE (v0.1-20251202git463382b-1 published and verified)
 
 ## Purpose / big picture
 
@@ -187,15 +187,24 @@ fresh-guest CUSE acceptance plan.
   36128506702 at `0caacfb` passed 15/15 on Rocky Linux 10.2 (kernel
   6.12.0-211.16.1.el10_2.0.1) and Fedora 43 (kernel 6.17.1-300.fc43), both
   SELinux enforcing, with a clean source tree.
-- [ ] EP-M7 CI, PR and review (completed: workflows, offline suites for
-  every script and for the workflows themselves, PR #1, hosted CI green on
-  every pushed head since run 35648908683 with the rootless systemd
-  preflight passing on `ubuntu-24.04` and Podman 4.9.3, and three rounds
-  of CodeRabbit and Codex review, each finding actioned or, for the
-  metrics interface, declined by the maintainer; PR #1 merged; hosted CUSE
-  acceptance passing on both targets on the PR #2 branch, run 36128506702;
-  remaining: merge PR #2 and confirm hosted acceptance on `main`).
-- [ ] EP-M8 release and post-publication verification.
+- [x] (2026-09-25 21:50Z) EP-M7 CI, PR and review. PR #2 was reviewed by
+  CodeRabbit (one documentation finding, fixed in `40fdb49` and confirmed),
+  approved at `40fdb49` and squash-merged as `cc8ba75`, with a tree
+  identical to `40fdb49`. On `main` at `cc8ba75`, CI (run 36192855997) and
+  hosted CUSE acceptance (run 36192855958) passed on both targets.
+  `make release-check` passed on a clean tree at `cc8ba75`: lint, the
+  offline suites and model check, eight container tests and fifteen
+  fresh-guest CUSE tests per target, each guest confirmed destroyed.
+- [x] (2026-09-26 00:10Z) EP-M8 release and post-publication verification.
+  Tag `v0.1-20251202git463382b-1` (annotated, unsigned) on `cc8ba75`;
+  release run 36194582772 passed every job and published nine assets (eight
+  unsigned RPMs and `SHA256SUMS`) at
+  <https://github.com/leynos/guildmaster-rpm/releases/tag/v0.1-20251202git463382b-1>.
+  The published checksums match, byte for byte, the candidate packages the
+  release run's guest jobs tested. `scripts/verify-release.sh` verified the
+  downloaded assets and their RPM metadata, and the guest tier passed 15/15
+  on the downloaded packages for Rocky Linux 10.2 and Fedora 43, both
+  SELinux enforcing (`cuse-<target>-release.txt`).
 
 ## Surprises & discoveries
 
