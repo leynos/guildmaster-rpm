@@ -2,12 +2,12 @@
 
 *RPMs of guildmaster, the machine-wide jobserver that gets its tokens back.*
 
-[guildmaster](https://codeberg.org/amonakov/guildmaster) serves `/dev/guild`,
-a GNU Make jobserver shared by every build on a machine, and returns a
-client's tokens to the pool when that client dies. This repository packages
-it for Rocky Linux 10 and Fedora 43 (x86_64), as a hardened systemd service
-with a configurable token capacity, and tests the result in real guests
-before every release.
+[guildmaster](https://codeberg.org/amonakov/guildmaster) serves `/dev/guild`, a
+GNU Make jobserver shared by every build on a machine, and returns a client's
+tokens to the pool when that client dies. This repository packages it for Rocky
+Linux 10 and Fedora 43 (x86_64), as a hardened systemd service with a
+configurable token capacity, and tests the result in real guests before every
+release.
 
 ______________________________________________________________________
 
@@ -16,18 +16,16 @@ ______________________________________________________________________
 - **One pool per machine**: several coding agents building at once share one
   small set of job tokens, instead of each assuming it owns every core.
 - **Safe by default**: the daemon runs unprivileged, `/dev/guild` is limited
-  to the `guild` group, and nothing starts until an operator enables
-  it.
+  to the `guild` group, and nothing starts until an operator enables it.
 - **Configurable without forking files**: set the capacity in
-  `/etc/sysconfig/guildmaster`; upgrades keep it and never restart the
-  daemon underneath running builds.
+  `/etc/sysconfig/guildmaster`; upgrades keep it and never restart the daemon
+  underneath running builds.
 - **Tested where it matters**: CUSE needs a real kernel, so releases are
-  accepted in fresh KVM guests under enforcing SELinux, not only in
-  containers.
+  accepted in fresh KVM guests under enforcing SELinux, not only in containers.
 
 It is not a Cargo limiter by itself, and a token count is not a limit on
-threads or memory. `leynos/dev-env-rocky` builds the transparent integration
-on top; see the [users' guide](docs/users-guide.md) for the fine print.
+threads or memory. `leynos/dev-env-rocky` builds the transparent integration on
+top; see the [users' guide](docs/users-guide.md) for the fine print.
 
 ______________________________________________________________________
 
@@ -35,8 +33,8 @@ ______________________________________________________________________
 
 ### Installation
 
-Releases are plain files on GitHub, not a DNF repository, and the packages
-are unsigned. Download, verify the checksums, and install by path:
+Releases are plain files on GitHub, not a DNF repository, and the packages are
+unsigned. Download, verify the checksums, and install by path:
 
 ```bash
 tag=v0.1-20251202git463382b-1
@@ -75,8 +73,7 @@ ______________________________________________________________________
 - Builds run with no network after dependencies are installed, and every
   build proves a clean rebuild from its own source RPM.
 - Output is published a whole generation at a time, under locks, with
-  rollback; the machinery is covered by offline tests and a bounded model
-  check.
+  rollback; the machinery is covered by offline tests and a bounded model check.
 - Two test tiers: rootless Podman containers running real systemd for
   packaging and the unit file, and disposable tmt/QEMU guests for CUSE,
   permissions, token accounting, upgrades, reboots and removal.
@@ -84,8 +81,8 @@ ______________________________________________________________________
 ### Prerequisites for building and testing
 
 Rootless Podman with cgroup v2 and the systemd cgroup manager, `tmt`, `make`
-and the lint tools for `make test`; additionally tmt's virtual provisioner,
-a libvirt user session and KVM for `make test-cuse`. The
+and the lint tools for `make test`; additionally tmt's virtual provisioner, a
+libvirt user session and KVM for `make test-cuse`. The
 [developers' guide](docs/developers-guide.md) has the details, and the
 preflight scripts report precisely what is missing.
 

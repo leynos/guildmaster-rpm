@@ -31,14 +31,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends shellcheck shfmt
           pipx install 'tmt==1.78.0'
-          npm install --global markdownlint-cli2@0.20.0
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Lint, offline script tests and bounded model check
         run: |
           set -o pipefail
-          make lint unit 2>&1 | tee "${RUNNER_TEMP}/lint-and-unit.log"
+          make lint-ci unit 2>&1 | tee "${RUNNER_TEMP}/lint-and-unit.log"
 
   build:
     name: Build and container tier (${{ matrix.target }})
