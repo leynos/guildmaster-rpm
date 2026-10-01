@@ -33,7 +33,9 @@ ACTION_FILES = {
     "setup-cuse-tier": ACTIONS_DIR / "setup-cuse-tier" / "action.yml",
 }
 
-PINNED_ACTION_RE = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
+# An action in a subdirectory of its repository (owner/repo/path@sha) is pinned
+# the same way as a repository root action.
+PINNED_ACTION_RE = re.compile(r"^[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}$")
 CHECKOUT_USES_PREFIX = "actions/checkout@"
 
 

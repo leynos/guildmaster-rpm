@@ -5,12 +5,21 @@ FEDORA_IMAGE := registry.fedoraproject.org/fedora@sha256:af06c24b2e90bef115bba80
 # this is rockylinux:10 as of 2026-07-25.
 ROCKY_IMAGE  := quay.io/rockylinux/rockylinux@sha256:827d37bc128288ccf160ee318bb3cb92d591164cb217e92f8bc61e3982ae1834
 
+# `make fmt` and `make check-fmt` call mdtablefix directly. `--git` selects the
+# Markdown files Git tracks and `--include-untracked` adds the untracked files
+# Git does not ignore, so a new document is formatted before it is staged.
+# Both modes need mdtablefix 0.6.1 or later.
+MDLINT ?= markdownlint-cli2
+MDTABLEFIX ?= mdtablefix
+MDTABLEFIX_SELECT = --git --include-untracked
+MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
+
 .PHONY: all rpms rpm-fedora-43 rpm-rocky-10 unit clean \
 	upgrade-fixture-fedora-43 upgrade-fixture-rocky-10 \
 	test test-fedora-43 test-rocky-10 \
 	test-cuse test-cuse-fedora-43 test-cuse-rocky-10 test-device \
 	accept-cuse-fedora-43 accept-cuse-rocky-10 \
-	lint lint-shell lint-python lint-fmf lint-workflows lint-docs lint-spec \
+	lint lint-ci lint-shell lint-python lint-fmf lint-workflows lint-docs lint-mermaid lint-spec \
 	check-fmt typecheck markdownlint \
 	release-check
 
@@ -115,10 +124,13 @@ PYTHON_SOURCES := scripts/tests tests/cuse/accounting
 
 lint: lint-shell lint-python typecheck lint-fmf lint-workflows lint-docs lint-spec
 
+lint-ci: lint-shell lint-python typecheck lint-fmf lint-workflows lint-mermaid lint-spec
+
 # Estate-standard gate names.
 check-fmt:
 	shfmt -d -i 4 $(SHELL_SOURCES)
 	uvx ruff format --check $(PYTHON_SOURCES)
+	$(MDTABLEFIX) --check $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 
 typecheck:
 	uvx ty check $(PYTHON_SOURCES)
@@ -148,8 +160,15 @@ lint-fmf:
 lint-workflows:
 	actionlint
 
+# `lint-docs` is the local, complete Markdown gate. CI lints Markdown prose with
+# the pinned markdownlint-cli2-action in `markdownlint.yml`, so its `make`
+# steps run `lint-ci`, which is `lint` without the prose lint and without
+# needing markdownlint-cli2 installed on the runner.
 lint-docs:
-	markdownlint-cli2 '**/*.md' '#.build' '#dist'
+	$(MDLINT) '**/*.md' '#.build' '#dist'
+	@$(MAKE) --no-print-directory lint-mermaid
+
+lint-mermaid:
 	@if grep -rqs --include='*.md' --exclude-dir=.build --exclude-dir=dist '^[`]\{3\}mermaid' . ; then \
 		nixie --no-sandbox $$(git ls-files '*.md'); \
 	else \
@@ -176,3 +195,7 @@ release-check: lint test test-cuse
 # directory so a waiting build cannot end up locking an unlinked inode.
 clean:
 	scripts/clean.sh
+
+fmt: ## Format Markdown sources
+	$(MDTABLEFIX) --in-place $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
+	$(MDLINT) --fix "**/*.md"

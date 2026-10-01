@@ -1,8 +1,8 @@
 # Agent and contributor instructions
 
 This repository packages guildmaster as RPMs. Read
-[docs/developers-guide.md](docs/developers-guide.md) before changing
-anything; it explains the build, the two test tiers and their boundary.
+[docs/developers-guide.md](docs/developers-guide.md) before changing anything;
+it explains the build, the two test tiers and their boundary.
 
 ## Ground rules
 
@@ -43,7 +43,7 @@ without conventional-commit prefixes.
 
 ## Changing pins
 
-The upstream commit, the container base images, the guest images and the
-GitHub Actions are all pinned by immutable identifiers with recorded
-checksums or digests. The developers' guide gives the procedure for moving
-each pin. Never take a checksum from bytes that have just been downloaded.
+The upstream commit, the container base images, the guest images and the GitHub
+Actions are all pinned by immutable identifiers with recorded checksums or
+digests. The developers' guide gives the procedure for moving each pin. Never
+take a checksum from bytes that have just been downloaded.

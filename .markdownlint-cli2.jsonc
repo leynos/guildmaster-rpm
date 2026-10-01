@@ -10,5 +10,16 @@
     },
     "MD029": { "style": "ordered" }
   },
-  "ignores": [".build/**", "dist/**"]
+  "ignores": [
+    ".build/**",
+    "dist/**",
+    "**/.venv/**",
+    ".vtcode/**",
+    "**/node_modules/**",
+    "**/target/**",
+    ".terraform/**",
+    ".uv-cache/**",
+    "memories/**",
+    "CRUSH.md"
+  ]
 }

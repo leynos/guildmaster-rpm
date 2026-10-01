@@ -35,14 +35,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends shellcheck shfmt
           pipx install 'tmt==1.78.0'
-          npm install --global markdownlint-cli2@0.20.0
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install mdtablefix
+        # `make check-fmt` runs `mdtablefix --check --git`; 0.6.1 fixed the wrapping
+        # and Setext rewrites the estate relies on.
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@a5765019912a8ab6882b12db049c7cde635f3a85 # installs mdtablefix 0.6.1
+        with:
+          version: '0.6.1'
+
+      - name: Check formatting
+        run: make check-fmt
 
       - name: Lint
         run: |
           set -o pipefail
-          make lint 2>&1 | tee "${RUNNER_TEMP}/lint.log"
+          make lint-ci 2>&1 | tee "${RUNNER_TEMP}/lint.log"
 
       - name: Offline script tests and bounded model check
         run: |
