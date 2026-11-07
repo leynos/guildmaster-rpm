@@ -234,6 +234,7 @@ def run_finish_checks(module: ModuleType) -> list[tuple[str, bool]]:
     client.process = process
 
     def broken_send(command: str) -> None:
+        """Fail every send as a closed pipe would."""
         raise BrokenPipeError(command)
 
     client.send = broken_send

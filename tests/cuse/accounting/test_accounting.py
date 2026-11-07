@@ -311,6 +311,7 @@ class Client:
         """
 
         def blocked_in_read() -> bool:
+            """Report whether the client is inside read(2) with no answer pending."""
             syscall = Path(f"/proc/{self.pid}/syscall").read_text().split()
             return (
                 bool(syscall) and syscall[0] == READ_SYSCALL and not self.has_answer(0)
@@ -588,6 +589,7 @@ def scenario_inherited_handles(clients: list[Client]) -> None:
     # Release is asynchronous with respect to the child's exit; await it
     # through the pool itself, with a bound.
     def pool_restored() -> bool:
+        """Drain the pool and report whether every token had come back."""
         taken = drain(probe, hp)
         for _ in range(taken):
             probe.expect(f"give {hp}", "gave")
