@@ -589,7 +589,7 @@ def scenario_inherited_handles(clients: list[Client]) -> None:
     # Release is asynchronous with respect to the child's exit; await it
     # through the pool itself, with a bound.
     def pool_restored() -> bool:
-        """Drain the pool and report whether every token had come back."""
+        """Drain the pool, give the tokens back, and report whether all had returned."""
         taken = drain(probe, hp)
         for _ in range(taken):
             probe.expect(f"give {hp}", "gave")
