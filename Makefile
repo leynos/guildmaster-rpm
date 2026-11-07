@@ -19,7 +19,7 @@ MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 	test test-fedora-43 test-rocky-10 \
 	test-cuse test-cuse-fedora-43 test-cuse-rocky-10 test-device \
 	accept-cuse-fedora-43 accept-cuse-rocky-10 \
-	lint lint-ci lint-shell lint-python lint-fmf lint-workflows lint-docs lint-mermaid lint-spec \
+	interrogate lint lint-ci lint-shell lint-python lint-fmf lint-workflows lint-docs lint-mermaid lint-spec \
 	check-fmt typecheck markdownlint \
 	release-check
 
@@ -151,6 +151,30 @@ lint-python:
 	done; exit $$status
 	uvx ruff check $(PYTHON_SOURCES)
 	uvx ruff format --check $(PYTHON_SOURCES)
+	@$(MAKE) --no-print-directory interrogate
+
+# Interrogate scans each target recursively, subject to its default exclusions.
+INTERROGATE_VERSION ?= 1.7.0
+INTERROGATE_TARGETS ?= $(PYTHON_SOURCES)
+# Level 2 prints a MISSED row per undocumented definition, which the
+# `interrogate` recipe below looks for: the rounded percentage alone can pass a
+# lone gap.
+INTERROGATE_FLAGS ?= -vv --fail-under 100
+INTERROGATE ?= uv tool run --python 3.13 --from 'interrogate==$(INTERROGATE_VERSION)' interrogate
+
+# Interrogate rounds its percentage to one decimal, so `--fail-under 100` alone
+# can pass a lone gap in a large repository. This recipe also fails when `grep`
+# finds a MISSED row in the report on standard output, which `-vv` or higher
+# prints for each undocumented definition.
+interrogate:
+	@report="$$($(INTERROGATE) $(INTERROGATE_FLAGS) $(INTERROGATE_TARGETS))"; \
+	  status=$$?; \
+	  printf '%s\n' "$$report"; \
+	  test "$$status" -eq 0 || exit "$$status"; \
+	  if printf '%s\n' "$$report" | grep -q '| *MISSED *|'; then \
+	    printf '%s\n' 'interrogate: undocumented definitions remain; see the MISSED rows above' >&2; \
+	    exit 1; \
+	  fi
 
 # The CUSE plan takes its guest resources from context, so lint needs them.
 lint-fmf:

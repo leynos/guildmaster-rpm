@@ -1080,7 +1080,7 @@ _Table 6: lint sub-targets and the tools they require._
 | Target           | Tool(s)                                       | Notes                                                                                                                                         |
 | ---------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lint-shell`     | `shellcheck -x -P SCRIPTDIR`, `shfmt -d -i 4` | Runs over every script in `scripts/`, `scripts/tests/`, `packaging/`, `tests/lib/` and every `tests/*/*/test.sh`.                             |
-| `lint-python`    | `uvx ruff check`, `uvx ruff format --check`   | Runs over `scripts/tests` and `tests/cuse/accounting`.                                                                                        |
+| `lint-python`    | `uvx ruff check`, `uvx ruff format --check`   | Runs over `scripts/tests` and `tests/cuse/accounting`, then `make interrogate` (pinned Interrogate 1.7.0, 100 per cent docstring coverage).   |
 | `typecheck`      | `uvx ty check`                                | Type-checks the same Python sources.                                                                                                          |
 | `lint-fmf`       | `tmt lint --failed-only --enforce-check C001` | Needs `distro`, `guest_cpus` and `guest_memory_mib` context, since `plans/cuse.fmf` substitutes them; the `Makefile` supplies example values. |
 | `lint-workflows` | `actionlint`                                  | Lints `.github/workflows/`.                                                                                                                   |
