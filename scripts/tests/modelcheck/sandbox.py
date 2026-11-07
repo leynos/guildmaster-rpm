@@ -13,7 +13,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -31,7 +31,7 @@ from .common import (
 
 
 @contextmanager
-def _inspecting(what: str) -> Iterator[None]:
+def _inspecting(what: str) -> Generator[None]:
     """Wrap filesystem read and decode failures in :class:`InspectionError`.
 
     Parameters
