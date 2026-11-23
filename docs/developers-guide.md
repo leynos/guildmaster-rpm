@@ -259,7 +259,7 @@ ______________________________________________________________________
 
 The rationale for every decision in this section is recorded in the ADR
 (Architecture Decision Record) at
-`docs/adr-001-system-service-and-device-policy.md`; this section only
+`docs/adrs/adr-0001-system-service-and-device-policy.md`; this section only
 summarizes the mechanism.
 
 - **Accounts.** `packaging/guildmaster.sysusers` creates the daemon's

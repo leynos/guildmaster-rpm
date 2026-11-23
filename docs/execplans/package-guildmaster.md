@@ -506,7 +506,7 @@ REQ-CUSE     fresh-guest acceptance
                 scripts/tests/test-virt-preflight.sh, make test-cuse
 REQ-DOCS     README, guides, ADR
              -> EP-M6
-             -> make lint (markdownlint), docs/adr-001-system-service-and-device-policy.md
+             -> make lint (markdownlint), docs/adrs/adr-0001-system-service-and-device-policy.md
 REQ-CI       pinned least-privilege CI
              -> EP-M7
              -> make lint (actionlint), hosted workflow runs on PR #1
@@ -615,7 +615,7 @@ gates, CI, review and release.
   on both distributions, including the reboot/module-autoload scenario and
   upgrade/drain/removal.
 - EP-M6: `README.md`, `docs/users-guide.md`, `docs/developers-guide.md`,
-  `docs/adr-001-system-service-and-device-policy.md`, `CHANGELOG.md`,
+  `docs/adrs/adr-0001-system-service-and-device-policy.md`, `CHANGELOG.md`,
   `AGENTS.md`; `make lint` covering shellcheck, shfmt, actionlint, `tmt lint`,
   markdownlint, nixie, ruff/ty for Python, rpmlint where available.
 - EP-M7: `.github/workflows/ci.yml`, `acceptance.yml`, `release.yml`,

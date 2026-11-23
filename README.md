@@ -103,8 +103,8 @@ ______________________________________________________________________
   activation, permissions, capacity, upgrades, restarts and removal
 - [Developers' guide](docs/developers-guide.md) — provenance, versioning, the
   patch, build and publication, test architecture, CI and releases
-- [ADR 001](docs/adr-001-system-service-and-device-policy.md) — why it is a
-  system unit, the device policy, the test boundary and the capacity patch
+- [ADR 001](docs/adrs/adr-0001-system-service-and-device-policy.md) — why it is
+  a system unit, the device policy, the test boundary and the capacity patch
 - [Changelog](CHANGELOG.md)
 
 ______________________________________________________________________
