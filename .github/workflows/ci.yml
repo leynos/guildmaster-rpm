@@ -48,6 +48,9 @@ jobs:
       - name: Check formatting
         run: make check-fmt
 
+      - name: Install Nixie and Merman CLI
+        uses: leynos/shared-actions/.github/actions/install-nixie@ab489303d8b0f0175bd334335b696ca48e0e7586
+
       - name: Lint
         run: |
           set -o pipefail
