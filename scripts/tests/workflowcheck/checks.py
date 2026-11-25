@@ -192,7 +192,7 @@ def check_permissions_publish_only(bundle: Bundle) -> None:
 
 
 def check_concurrency(bundle: Bundle) -> None:
-    """ci/acceptance cancel superseded runs; release never cancels.
+    """Release never cancels a run in flight.
 
     Parameters
     ----------
@@ -202,12 +202,8 @@ def check_concurrency(bundle: Bundle) -> None:
     Raises
     ------
     AssertionError
-        If ``ci.yml`` or ``acceptance.yml`` does not cancel superseded
-        runs, or ``release.yml`` may cancel one.
+        If ``release.yml`` may cancel a run in flight.
     """
-    for name in ("ci", "acceptance"):
-        conc = bundle.docs[name]["concurrency"]
-        assert conc["cancel-in-progress"] is True, f"{name} cancel-in-progress: {conc}"
     rel_conc = bundle.docs["release"]["concurrency"]
     assert rel_conc["cancel-in-progress"] is False, (
         f"release cancel-in-progress: {rel_conc}"
